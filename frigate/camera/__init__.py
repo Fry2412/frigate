@@ -4,6 +4,21 @@ from multiprocessing.managers import SyncManager, ValueProxy
 from multiprocessing.sharedctypes import Synchronized
 from multiprocessing.synchronize import Event
 
+# Auto Zoom automation states matching the data-model AutoZoomSession.automation_state
+AUTO_ZOOM_STATES = (
+    "off",
+    "ready",
+    "tracking",
+    "holding",
+    "returning_home",
+    "paused_manual",
+    "suspended",
+)
+
+# Auto Zoom camera support classifications
+AUTO_ZOOM_SUPPORT_CLASSES = ("none", "zoom_only", "full_ptz", "limited")
+AUTO_ZOOM_SUPPORT_STATUSES = ("supported", "degraded", "unsupported")
+
 
 class CameraMetrics:
     camera_fps: ValueProxy[float]
@@ -71,3 +86,34 @@ class PTZMetrics:
         self.reset = mp.Event()
 
         self.motor_stopped.set()
+
+
+class AutoZoomMetrics:
+    """Shared-memory metrics for the Auto Zoom feature on one camera."""
+
+    auto_zoom_enabled: Synchronized
+    automation_state: ValueProxy[str]
+    current_zoom_level: Synchronized
+    desired_zoom_level: Synchronized
+    primary_target_id: ValueProxy[str]
+    last_action: ValueProxy[str]
+    last_action_reason: ValueProxy[str]
+    last_suppression_reason: ValueProxy[str]
+    support_status: ValueProxy[str]
+
+    active: Event
+    manual_override: Event
+
+    def __init__(self, *, enabled: bool, manager: SyncManager):
+        self.auto_zoom_enabled = mp.Value("i", enabled)  # type: ignore[assignment]
+        self.automation_state = manager.Value(str, "off")
+        self.current_zoom_level = mp.Value("d", 0.0)  # type: ignore[assignment]
+        self.desired_zoom_level = mp.Value("d", 0.0)  # type: ignore[assignment]
+        self.primary_target_id = manager.Value(str, "")
+        self.last_action = manager.Value(str, "none")
+        self.last_action_reason = manager.Value(str, "")
+        self.last_suppression_reason = manager.Value(str, "")
+        self.support_status = manager.Value(str, "unsupported")
+
+        self.active = mp.Event()
+        self.manual_override = mp.Event()

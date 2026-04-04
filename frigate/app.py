@@ -17,7 +17,7 @@ from playhouse.sqlite_ext import SqliteExtDatabase
 
 from frigate.api.auth import hash_password
 from frigate.api.fastapi_app import create_fastapi_app
-from frigate.camera import CameraMetrics, PTZMetrics
+from frigate.camera import AutoZoomMetrics, CameraMetrics, PTZMetrics
 from frigate.camera.maintainer import CameraMaintainer
 from frigate.comms.base_communicator import Communicator
 from frigate.comms.dispatcher import Dispatcher
@@ -69,6 +69,7 @@ from frigate.models import (
 from frigate.object_detection.base import ObjectDetectProcess
 from frigate.output.output import OutputProcess
 from frigate.ptz.autotrack import PtzAutoTrackerThread
+from frigate.ptz.auto_zoom import AutoZoomThread
 from frigate.ptz.onvif import OnvifController
 from frigate.record.cleanup import RecordingCleanup
 from frigate.record.export import migrate_exports
@@ -118,6 +119,7 @@ class FrigateApp:
             else None
         )
         self.ptz_metrics: dict[str, PTZMetrics] = {}
+        self.auto_zoom_metrics: dict[str, AutoZoomMetrics] = {}
         self.processes: dict[str, int] = {}
         self.embeddings: Optional[EmbeddingsContext] = None
         self.profile_manager: Optional[ProfileManager] = None
@@ -158,6 +160,10 @@ class FrigateApp:
                 autotracker_enabled=self.config.cameras[
                     camera_name
                 ].onvif.autotracking.enabled
+            )
+            self.auto_zoom_metrics[camera_name] = AutoZoomMetrics(
+                enabled=self.config.cameras[camera_name].onvif.auto_zoom.enabled,
+                manager=self.metrics_manager,
             )
 
     def init_queues(self) -> None:
@@ -349,6 +355,7 @@ class FrigateApp:
             self.inter_config_updater,
             self.onvif_controller,
             self.ptz_metrics,
+            self.auto_zoom_metrics,
             comms,
         )
 
@@ -414,12 +421,23 @@ class FrigateApp:
         )
         self.ptz_autotracker_thread.start()
 
+    def start_auto_zoom(self) -> None:
+        """Start the Auto Zoom background thread."""
+        self.auto_zoom_thread = AutoZoomThread(
+            self.config,
+            self.onvif_controller,
+            self.auto_zoom_metrics,
+            self.stop_event,
+        )
+        self.auto_zoom_thread.start()
+
     def start_detected_frames_processor(self) -> None:
         self.detected_frames_processor = TrackedObjectProcessor(
             self.config,
             self.dispatcher,
             self.detected_frames_queue,
             self.ptz_autotracker_thread,
+            self.auto_zoom_thread,
             self.stop_event,
         )
         self.detected_frames_processor.start()
@@ -618,6 +636,7 @@ class FrigateApp:
         self.init_embeddings_client()
         self.start_video_output_processor()
         self.start_ptz_autotracker()
+        self.start_auto_zoom()
         self.start_detected_frames_processor()
         self.start_camera_processor()
         self.start_audio_processor()
@@ -646,6 +665,7 @@ class FrigateApp:
                     self.replay_manager,
                     self.dispatcher,
                     self.profile_manager,
+                    self.auto_zoom_metrics,
                 ),
                 host="127.0.0.1",
                 port=5001,

@@ -1004,6 +1004,52 @@ cameras:
         timeout: 10
         # Optional: Values generated automatically by a camera calibration. Do not modify these manually. (default: shown below)
         movement_weights: []
+      # Optional: Auto Zoom - automatically adjusts camera zoom level to keep
+      # detected objects at an optimal size in the frame. Works with zoom-only
+      # cameras or as a complement to PTZ autotracking.
+      # NOTE: Auto Zoom operates independently from autotracking and will not
+      # interfere with it. If autotracking is enabled, Auto Zoom is unavailable.
+      auto_zoom:
+        # Optional: enable/disable Auto Zoom. (default: shown below)
+        enabled: False
+        # Optional: list of objects to track for zoom framing from labelmap.txt (default: shown below)
+        track:
+          - person
+        # Optional: priority order for selecting the zoom target when multiple objects are detected. (default: shown below)
+        # Options: largest, closest, newest
+        target_priority: largest
+        # Optional: list of zone names where objects should be excluded from Auto Zoom targeting. (default: shown below)
+        exclude_zones: []
+        # Optional: minimum fraction of frame area the target bounding box should occupy. (default: shown below)
+        target_ratio_min: 0.03
+        # Optional: maximum fraction of frame area the target bounding box should occupy. (default: shown below)
+        target_ratio_max: 0.60
+        # Optional: minimum optical zoom level (1.0 = no zoom). (default: shown below)
+        min_zoom: 1.0
+        # Optional: maximum optical zoom level. (default: shown below)
+        max_zoom: 10.0
+        # Optional: seconds to wait before returning to home zoom after the target is lost. (default: shown below)
+        return_to_home_timeout: 10
+        # Optional: fraction of frame edge to ignore for target selection (0.0 to < 0.5). (default: shown below)
+        edge_margin: 0.05
+        # Optional: zoom adjustment sensitivity. (default: shown below)
+        # Options: low, medium, high
+        sensitivity: medium
+        # Optional: seconds to hold zoom level before making another adjustment. (default: shown below)
+        hold_time: 0.5
+        # Optional: smoothing factor for zoom transitions (0.0 = instant, 1.0 = very slow). (default: shown below)
+        damping: 0.3
+        # Optional: seconds to pause Auto Zoom after manual PTZ/zoom commands. (default: shown below)
+        manual_override_timeout: 30
+        # Optional: behavior when the tracked object becomes stationary. (default: shown below)
+        # Options: hold, zoom_in, return_to_home
+        stationary_behavior: hold
+        # Optional: zoom mode when returning to home position. (default: shown below)
+        # Options: min_zoom, configured_level
+        home_zoom_mode: min_zoom
+        # Optional: specific zoom level to use when home_zoom_mode is 'configured_level'. (default: shown below)
+        # Required when home_zoom_mode is 'configured_level'.
+        home_zoom_level: 1.0
 
     # Optional: Configuration for how to sort the cameras in the Birdseye view.
     birdseye:

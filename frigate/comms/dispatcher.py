@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Callable, Optional, cast
 
-from frigate.camera import PTZMetrics
+from frigate.camera import AutoZoomMetrics, PTZMetrics
 from frigate.camera.activity_manager import AudioActivityManager, CameraActivityManager
 from frigate.comms.base_communicator import Communicator
 from frigate.comms.webpush import WebPushClient
@@ -53,12 +53,14 @@ class Dispatcher:
         config_updater: CameraConfigUpdatePublisher,
         onvif: OnvifController,
         ptz_metrics: dict[str, PTZMetrics],
+        auto_zoom_metrics: dict[str, AutoZoomMetrics],
         communicators: list[Communicator],
     ) -> None:
         self.config = config
         self.config_updater = config_updater
         self.onvif = onvif
         self.ptz_metrics = ptz_metrics
+        self.auto_zoom_metrics = auto_zoom_metrics
         self.comms = communicators
         self.camera_activity = CameraActivityManager(config, self.publish)
         self.audio_activity = AudioActivityManager(config, self.publish)
@@ -67,6 +69,7 @@ class Dispatcher:
         self.embeddings_reindex: dict[str, Any] = {}
         self.birdseye_layout: dict[str, Any] = {}
         self.audio_transcription_state: str = "idle"
+        self._last_auto_zoom_active: dict[str, bool] = {}
         self._camera_settings_handlers: dict[str, Callable] = {
             "audio": self._on_audio_command,
             "audio_transcription": self._on_audio_transcription_command,
@@ -74,6 +77,7 @@ class Dispatcher:
             "enabled": self._on_enabled_command,
             "improve_contrast": self._on_motion_improve_contrast_command,
             "ptz_autotracker": self._on_ptz_autotracker_command,
+            "auto_zoom": self._on_auto_zoom_command,
             "motion": self._on_motion_command,
             "motion_contour_area": self._on_motion_contour_area_command,
             "motion_threshold": self._on_motion_threshold_command,
@@ -294,6 +298,9 @@ class Dispatcher:
                     "autotracking": self.config.cameras[
                         camera
                     ].onvif.autotracking.enabled,
+                    "auto_zoom": self.config.cameras[
+                        camera
+                    ].onvif.auto_zoom.enabled,
                     "alerts": self.config.cameras[camera].review.alerts.enabled,
                     "detections": self.config.cameras[camera].review.detections.enabled,
                     "object_descriptions": self.config.cameras[
@@ -303,6 +310,25 @@ class Dispatcher:
                         camera
                     ].review.genai.enabled,
                 }
+
+                # Add auto_zoom runtime state from shared metrics
+                az = self.auto_zoom_metrics.get(camera)
+                if az is not None:
+                    is_active = az.active.is_set()
+                    camera_status[camera]["auto_zoom_state"] = str(
+                        az.automation_state.value
+                    )
+                    camera_status[camera]["auto_zoom_active"] = is_active
+
+                    # Publish auto_zoom/active MQTT topic on change
+                    last_active = self._last_auto_zoom_active.get(camera)
+                    if last_active != is_active:
+                        self._last_auto_zoom_active[camera] = is_active
+                        self.publish(
+                            f"{camera}/auto_zoom/active",
+                            "ON" if is_active else "OFF",
+                            retain=False,
+                        )
 
             self.publish("camera_activity", json.dumps(camera_status))
             self.publish("model_state", json.dumps(self.model_state.copy()))
@@ -527,6 +553,34 @@ class Dispatcher:
 
         self.publish(f"{camera_name}/ptz_autotracker/state", payload, retain=True)
 
+    def _on_auto_zoom_command(self, camera_name: str, payload: str) -> None:
+        """Callback for auto_zoom topic."""
+        auto_zoom_settings = self.config.cameras[camera_name].onvif.auto_zoom
+
+        if payload == "ON":
+            if not auto_zoom_settings.enabled_in_config:
+                logger.error(
+                    "Auto zoom must be enabled in the config to be turned on via MQTT"
+                )
+                return
+            if not self.auto_zoom_metrics[camera_name].auto_zoom_enabled.value:
+                logger.info("Turning on auto zoom for %s", camera_name)
+                self.auto_zoom_metrics[camera_name].auto_zoom_enabled.value = True
+                auto_zoom_settings.enabled = True
+        elif payload == "OFF":
+            if self.auto_zoom_metrics[camera_name].auto_zoom_enabled.value:
+                logger.info("Turning off auto zoom for %s", camera_name)
+                self.auto_zoom_metrics[camera_name].auto_zoom_enabled.value = False
+                auto_zoom_settings.enabled = False
+                # Immediately mark inactive when disabled
+                self.auto_zoom_metrics[camera_name].active.clear()
+                self._last_auto_zoom_active[camera_name] = False
+                self.publish(
+                    f"{camera_name}/auto_zoom/active", "OFF", retain=False
+                )
+
+        self.publish(f"{camera_name}/auto_zoom/state", payload, retain=True)
+
     def _on_motion_contour_area_command(self, camera_name: str, payload: int) -> None:
         """Callback for motion contour topic."""
         try:
@@ -710,6 +764,14 @@ class Dispatcher:
 
             self.onvif.handle_command(camera_name, command, param)
             logger.info(f"Setting ptz command to {command} for {camera_name}")
+
+            # Signal manual override to Auto Zoom engine if enabled
+            az = self.auto_zoom_metrics.get(camera_name)
+            if az is not None and az.auto_zoom_enabled.value:
+                az.manual_override.set()
+                logger.debug(
+                    "Auto Zoom %s: manual PTZ override signalled", camera_name
+                )
         except KeyError as k:
             logger.error(f"Invalid PTZ command {preset}: {k}")
 

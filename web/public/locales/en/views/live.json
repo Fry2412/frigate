@@ -94,6 +94,21 @@
     "enable": "Enable Autotracking",
     "disable": "Disable Autotracking"
   },
+  "autoZoom": {
+    "enable": "Enable Auto Zoom",
+    "disable": "Disable Auto Zoom",
+    "status": {
+      "off": "Auto Zoom Off",
+      "ready": "Auto Zoom Ready",
+      "tracking": "Auto Zoom Tracking",
+      "holding": "Auto Zoom Holding",
+      "returning_home": "Returning to Home Zoom",
+      "paused_manual": "Auto Zoom Paused (Manual)",
+      "suspended": "Auto Zoom Suspended"
+    },
+    "unsupported": "Auto Zoom Unsupported",
+    "degraded": "Auto Zoom Degraded"
+  },
   "streamStats": {
     "enable": "Show Stream Stats",
     "disable": "Hide Stream Stats"
@@ -158,7 +173,8 @@
     "snapshots": "Snapshots",
     "audioDetection": "Audio Detection",
     "transcription": "Audio Transcription",
-    "autotracking": "Autotracking"
+    "autotracking": "Autotracking",
+    "autoZoom": "Auto Zoom"
   },
   "history": {
     "label": "Show historical footage"

@@ -838,6 +838,82 @@
     "ignore_time_mismatch": {
       "label": "Ignore time mismatch",
       "description": "Ignore time synchronization differences between camera and Frigate server for ONVIF communication."
+    },
+    "auto_zoom": {
+      "label": "Auto Zoom",
+      "description": "Automatically adjust zoom to keep a tracked subject at a useful size on fixed-view cameras without pan/tilt movement.",
+      "enabled": {
+        "label": "Enable Auto Zoom",
+        "description": "Enable or disable automatic zoom framing for this camera."
+      },
+      "enabled_in_config": {
+        "label": "Original Auto Zoom state",
+        "description": "Internal field to track whether Auto Zoom was enabled in configuration."
+      },
+      "track": {
+        "label": "Tracked objects",
+        "description": "List of object types that may trigger Auto Zoom."
+      },
+      "target_priority": {
+        "label": "Target priority",
+        "description": "Ordered list of object classes defining selection priority when multiple targets are eligible."
+      },
+      "exclude_zones": {
+        "label": "Excluded zones",
+        "description": "List of existing camera zone names where objects should not trigger or sustain Auto Zoom."
+      },
+      "target_ratio_min": {
+        "label": "Minimum target ratio",
+        "description": "Minimum target box height ratio (height / frame height) below which zoom-in is considered."
+      },
+      "target_ratio_max": {
+        "label": "Maximum target ratio",
+        "description": "Maximum target box height ratio above which zoom-out or hold is preferred."
+      },
+      "min_zoom": {
+        "label": "Minimum zoom level",
+        "description": "Optional lower bound for the zoom range used by Auto Zoom."
+      },
+      "max_zoom": {
+        "label": "Maximum zoom level",
+        "description": "Optional upper bound for the zoom range used by Auto Zoom."
+      },
+      "return_to_home_timeout": {
+        "label": "Return to home timeout",
+        "description": "Seconds to wait after losing a target before returning to the home/default zoom."
+      },
+      "edge_margin": {
+        "label": "Edge margin",
+        "description": "Normalized distance from frame edges where zoom-in is restricted. Values between 0.0 and 0.5."
+      },
+      "sensitivity": {
+        "label": "Sensitivity",
+        "description": "Controls how aggressively Auto Zoom responds: conservative, balanced, or responsive."
+      },
+      "hold_time": {
+        "label": "Hold time",
+        "description": "Seconds to hold the current zoom level after reaching the desired framing band."
+      },
+      "damping": {
+        "label": "Damping",
+        "description": "Controls the rate at which zoom changes are smoothed to prevent oscillation."
+      },
+      "manual_override_timeout": {
+        "label": "Manual override timeout",
+        "description": "Seconds to pause Auto Zoom after a manual zoom/PTZ command is detected."
+      },
+      "stationary_behavior": {
+        "label": "Stationary behavior",
+        "description": "How to handle stationary targets: ignore, limited zoom, or allow full zoom."
+      },
+      "home_zoom_mode": {
+        "label": "Home zoom mode",
+        "description": "How the home/default zoom level is determined: current level on enable, or a configured level."
+      },
+      "home_zoom_level": {
+        "label": "Home zoom level",
+        "description": "Explicit zoom level to return to when home_zoom_mode is set to configured_level."
+      }
     }
   },
   "type": {

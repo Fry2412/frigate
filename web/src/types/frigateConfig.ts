@@ -193,6 +193,26 @@ export interface CameraConfig {
       zoom_factor: number;
       zooming: string;
     };
+    auto_zoom: {
+      enabled: boolean;
+      enabled_in_config: boolean;
+      track: string[];
+      target_priority: string[];
+      exclude_zones: string[];
+      target_ratio_min: number;
+      target_ratio_max: number;
+      min_zoom: number | null;
+      max_zoom: number | null;
+      return_to_home_timeout: number;
+      edge_margin: number;
+      sensitivity: "conservative" | "balanced" | "responsive";
+      hold_time: number;
+      damping: number;
+      manual_override_timeout: number;
+      stationary_behavior: "ignore" | "limited" | "allow";
+      home_zoom_mode: "current_on_enable" | "configured_level";
+      home_zoom_level: number | null;
+    };
     host: string;
     password: string | null;
     port: number;

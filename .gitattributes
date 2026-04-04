@@ -1,0 +1,11 @@
+# Ensure shell scripts always use LF line endings (never CRLF),
+# even when checked out on Windows. CRLF or UTF-8 BOM in .sh files
+# breaks Docker builds because the kernel cannot find the interpreter.
+*.sh text eol=lf
+
+# Dockerfile and entrypoint scripts
+Dockerfile text eol=lf
+docker/*/rootfs/**/* text eol=lf
+
+# Python scripts used as build scripts
+*.py text eol=lf

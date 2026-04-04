@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import useSWR from "swr";
 import Heading from "@/components/ui/heading";
 import { Switch } from "@/components/ui/switch";
+import { useAutoZoomState } from "@/api/ws";
 import { useUserPersistence } from "@/hooks/use-user-persistence";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCameraActivity } from "@/hooks/use-camera-activity";
@@ -138,6 +139,12 @@ export default function ObjectSettingsView({
   const memoizedObjects = useDeepMemo(objects);
   const memoizedAudio = useDeepMemo(audio_detections);
 
+  const autoZoomConfig = cameraConfig?.onvif?.auto_zoom;
+  const autoZoomEnabled = autoZoomConfig?.enabled_in_config ?? false;
+  const { payload: autoZoomState, send: sendAutoZoom } = useAutoZoomState(
+    cameraConfig?.name ?? "",
+  );
+
   const searchParams = useMemo(() => {
     if (!optionsLoaded) {
       return new URLSearchParams();
@@ -196,6 +203,86 @@ export default function ObjectSettingsView({
               </Link>
             </div>
           </div>
+        )}
+
+        {autoZoomEnabled && (
+          <>
+            <Separator className="my-2" />
+            <Heading as="h4" className="mb-2">
+              {t("autoZoom.title")}
+            </Heading>
+            <div className="mb-3 space-y-3 text-sm text-muted-foreground">
+              <p>{t("autoZoom.desc")}</p>
+            </div>
+            <div className="mb-4 space-y-3">
+              <div className="flex w-full flex-row items-center justify-between">
+                <Label className="text-primary">
+                  {t("autoZoom.title")}
+                </Label>
+                <Switch
+                  id="auto-zoom-toggle"
+                  checked={autoZoomState === "ON"}
+                  onCheckedChange={(isChecked) => {
+                    sendAutoZoom(isChecked ? "ON" : "OFF");
+                  }}
+                />
+              </div>
+              {autoZoomConfig && (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.sensitivity")}</span>
+                    <span className="capitalize">
+                      {autoZoomConfig.sensitivity}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.targetRatioRange")}</span>
+                    <span>
+                      {autoZoomConfig.target_ratio_min}&ndash;
+                      {autoZoomConfig.target_ratio_max}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.edgeMargin")}</span>
+                    <span>{autoZoomConfig.edge_margin}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.damping")}</span>
+                    <span>{autoZoomConfig.damping}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.stationaryBehavior")}</span>
+                    <span className="capitalize">
+                      {autoZoomConfig.stationary_behavior}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.returnToHomeTimeout")}</span>
+                    <span>
+                      {t("autoZoom.seconds", {
+                        value: autoZoomConfig.return_to_home_timeout,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("autoZoom.manualOverrideTimeout")}</span>
+                    <span>
+                      {t("autoZoom.seconds", {
+                        value: autoZoomConfig.manual_override_timeout,
+                      })}
+                    </span>
+                  </div>
+                  {autoZoomConfig.exclude_zones &&
+                    autoZoomConfig.exclude_zones.length > 0 && (
+                      <div className="flex justify-between">
+                        <span>{t("autoZoom.excludedZones")}</span>
+                        <span>{autoZoomConfig.exclude_zones.join(", ")}</span>
+                      </div>
+                    )}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         <Tabs defaultValue="debug" className="w-full">

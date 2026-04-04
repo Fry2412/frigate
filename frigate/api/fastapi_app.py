@@ -29,6 +29,7 @@ from frigate.api import (
     review,
 )
 from frigate.api.auth import get_jwt_secret, limiter, require_admin_by_default
+from frigate.camera import AutoZoomMetrics
 from frigate.comms.dispatcher import Dispatcher
 from frigate.comms.event_metadata_updater import (
     EventMetadataPublisher,
@@ -73,6 +74,7 @@ def create_fastapi_app(
     replay_manager: DebugReplayManager,
     dispatcher: Optional[Dispatcher] = None,
     profile_manager: Optional[ProfileManager] = None,
+    auto_zoom_metrics: Optional[dict[str, AutoZoomMetrics]] = None,
     enforce_default_admin: bool = True,
 ):
     logger.info("Starting FastAPI app")
@@ -157,6 +159,7 @@ def create_fastapi_app(
     app.replay_manager = replay_manager
     app.dispatcher = dispatcher
     app.profile_manager = profile_manager
+    app.auto_zoom_metrics = auto_zoom_metrics or {}
 
     if frigate_config.auth.enabled:
         secret = get_jwt_secret()

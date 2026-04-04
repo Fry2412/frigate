@@ -327,6 +327,17 @@ export function useAutotrackingState(camera: string): {
   return { payload: payload as ToggleableSetting, send };
 }
 
+export function useAutoZoomState(camera: string): {
+  payload: ToggleableSetting;
+  send: (payload: ToggleableSetting, retain?: boolean) => void;
+} {
+  const {
+    value: { payload },
+    send,
+  } = useWs(`${camera}/auto_zoom/state`, `${camera}/auto_zoom/set`);
+  return { payload: payload as ToggleableSetting, send };
+}
+
 export function useAlertsState(camera: string): {
   payload: ToggleableSetting;
   send: (payload: ToggleableSetting, retain?: boolean) => void;

@@ -325,6 +325,7 @@
       "profiles": "Profiles",
       "ptzSupport": "PTZ Support",
       "autotrackingSupport": "Autotracking Support",
+      "autoZoomCapable": "Auto Zoom Capable",
       "presets": "Presets",
       "rtspCandidates": "RTSP Candidates",
       "rtspCandidatesDescription": "The following RTSP URLs were found from the camera probe. Test the connection to view stream metadata.",
@@ -829,6 +830,27 @@
       "ratio": "Ratio",
       "area": "Area"
     }
+  },
+  "autoZoom": {
+    "title": "Auto Zoom",
+    "desc": "Automatically adjusts zoom to keep tracked subjects at a useful size on fixed-view cameras.",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "state": "State",
+    "active": "Active",
+    "inactive": "Inactive",
+    "sensitivity": "Sensitivity",
+    "targetRatioRange": "Target ratio range",
+    "edgeMargin": "Edge margin",
+    "returnToHomeTimeout": "Return to home timeout",
+    "manualOverrideTimeout": "Manual override timeout",
+    "damping": "Damping",
+    "stationaryBehavior": "Stationary behavior",
+    "homeZoomMode": "Home zoom mode",
+    "excludedZones": "Excluded zones",
+    "noExcludedZones": "None",
+    "seconds": "{{value}}s",
+    "notConfigured": "Auto Zoom is not configured for this camera."
   },
   "timestampPosition": {
     "tl": "Top left",

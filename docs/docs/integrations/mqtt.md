@@ -490,6 +490,20 @@ Topic with current state of the PTZ autotracker for a camera. Published values a
 
 Topic to determine if PTZ autotracker is actively tracking an object. Published values are `ON` and `OFF`.
 
+### `frigate/<camera_name>/auto_zoom/set`
+
+Topic to turn Auto Zoom for a camera on and off. Expected values are `ON` and `OFF`. Auto Zoom must be enabled in the config to be turned on via MQTT. Auto Zoom operates independently from PTZ autotracking but cannot be active when autotracking is enabled.
+
+**NOTE:** The `auto_zoom/set` topic controls physical camera hardware (zoom motor). Ensure your MQTT broker uses authentication and access control lists (ACLs) to restrict who can publish to `frigate/+/auto_zoom/set`. Unauthorized MQTT clients could otherwise trigger unwanted zoom changes on your cameras.
+
+### `frigate/<camera_name>/auto_zoom/state`
+
+Topic with the current configured state of Auto Zoom for a camera. Published values are `ON` and `OFF`.
+
+### `frigate/<camera_name>/auto_zoom/active`
+
+Topic to determine if Auto Zoom is actively controlling the camera zoom level. Published values are `ON` and `OFF`.
+
 ### `frigate/<camera_name>/review_alerts/set`
 
 Topic to turn review alerts for a camera on or off. Expected values are `ON` and `OFF`.

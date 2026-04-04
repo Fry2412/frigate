@@ -85,6 +85,16 @@ class MqttClient(Communicator):
                 retain=True,
             )
             self.publish(
+                f"{camera_name}/auto_zoom/state",
+                "ON" if camera.onvif.auto_zoom.enabled_in_config else "OFF",
+                retain=True,
+            )
+            self.publish(
+                f"{camera_name}/auto_zoom/active",
+                "OFF",
+                retain=False,
+            )
+            self.publish(
                 f"{camera_name}/motion_threshold/state",
                 camera.motion.threshold,
                 retain=True,
@@ -248,6 +258,7 @@ class MqttClient(Communicator):
             "motion",
             "improve_contrast",
             "ptz_autotracker",
+            "auto_zoom",
             "motion_threshold",
             "motion_contour_area",
             "birdseye",

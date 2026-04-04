@@ -37,6 +37,7 @@ class OnvifCommandEnum(str, Enum):
     stop = "stop"
     zoom_in = "zoom_in"
     zoom_out = "zoom_out"
+    zoom_absolute = "zoom_absolute"
     focus_in = "focus_in"
     focus_out = "focus_out"
 
@@ -553,7 +554,88 @@ class OnvifController:
 
         self.cams[camera_name]["features"] = supported_features
         self.cams[camera_name]["init"] = True
+
+        # Evaluate Auto Zoom capability for this camera
+        self.cams[camera_name]["auto_zoom_capability"] = (
+            self._evaluate_auto_zoom_capability(camera_name, supported_features)
+        )
+
         return True
+
+    def _evaluate_auto_zoom_capability(
+        self, camera_name: str, features: list[str]
+    ) -> dict[str, Any]:
+        """Evaluate Auto Zoom capability for a camera based on detected ONVIF features.
+
+        Args:
+            camera_name: The camera name.
+            features: List of detected PTZ feature strings.
+
+        Returns:
+            A dict with Auto Zoom capability fields matching the runtime contract.
+        """
+        zoom_supported = "zoom" in features or "zoom-r" in features or "zoom-a" in features
+        absolute_zoom_supported = "zoom-a" in features
+        relative_zoom_supported = "zoom-r" in features
+        has_pan_tilt = "pt" in features or "pt-r" in features
+
+        autotracking_config = self.config.cameras[camera_name].onvif.autotracking
+        autotracking_active = (
+            autotracking_config.enabled_in_config and autotracking_config.enabled
+        )
+
+        # Determine support class
+        if not zoom_supported:
+            support_class = "none"
+            support_status = "unsupported"
+            unsupported_reason = "No usable ONVIF zoom control detected"
+        elif has_pan_tilt and autotracking_active:
+            support_class = "full_ptz"
+            support_status = "unsupported"
+            unsupported_reason = (
+                "PTZ autotracking is active; Auto Zoom is not enabled simultaneously"
+            )
+        elif has_pan_tilt and not autotracking_active:
+            # Camera has full PTZ but autotracking is off — zoom-only is possible
+            support_class = "full_ptz"
+            support_status = "supported"
+            unsupported_reason = None
+        elif zoom_supported and not has_pan_tilt:
+            support_class = "zoom_only"
+            support_status = "supported"
+            unsupported_reason = None
+        else:
+            support_class = "limited"
+            support_status = "degraded"
+            unsupported_reason = "Zoom support detected but may be incomplete"
+
+        # Downgrade if only relative zoom without absolute
+        if (
+            support_status == "supported"
+            and not absolute_zoom_supported
+            and relative_zoom_supported
+        ):
+            support_status = "degraded"
+            unsupported_reason = (
+                "Only relative zoom available; absolute zoom preferred for Auto Zoom"
+            )
+
+        logger.debug(
+            "Auto Zoom capability for %s: class=%s, status=%s, reason=%s",
+            camera_name,
+            support_class,
+            support_status,
+            unsupported_reason,
+        )
+
+        return {
+            "zoom_supported": zoom_supported,
+            "absolute_zoom_supported": absolute_zoom_supported,
+            "relative_zoom_supported": relative_zoom_supported,
+            "support_class": support_class,
+            "support_status": support_status,
+            "unsupported_reason": unsupported_reason,
+        }
 
     async def _stop(self, camera_name: str) -> None:
         move_request = self.cams[camera_name]["move_request"]
@@ -848,6 +930,11 @@ class OnvifController:
                 )
             elif command in (OnvifCommandEnum.zoom_in, OnvifCommandEnum.zoom_out):
                 await self._zoom(camera_name, command)
+            elif command == OnvifCommandEnum.zoom_absolute:
+                parts = param.split("_")
+                zoom_level = float(parts[0]) if parts else 0.0
+                speed = int(parts[1]) if len(parts) > 1 else 1
+                await self._zoom_absolute(camera_name, zoom_level, speed)
             elif command in (OnvifCommandEnum.focus_in, OnvifCommandEnum.focus_out):
                 await self._focus(camera_name, command)
             else:
@@ -901,6 +988,7 @@ class OnvifController:
                 "features": self.cams[camera_name]["features"],
                 "presets": list(self.cams[camera_name]["presets"].keys()),
                 "profiles": self.cams[camera_name].get("profiles", []),
+                "auto_zoom": self.cams[camera_name].get("auto_zoom_capability", {}),
             }
 
         if camera_name not in self.cams.keys() and camera_name in self.config.cameras:
@@ -930,6 +1018,9 @@ class OnvifController:
                         "name": camera_name,
                         "features": self.cams[camera_name]["features"],
                         "presets": list(self.cams[camera_name]["presets"].keys()),
+                        "auto_zoom": self.cams[camera_name].get(
+                            "auto_zoom_capability", {}
+                        ),
                     }
                 else:
                     logger.warning(f"ONVIF initialization failed for {camera_name}")

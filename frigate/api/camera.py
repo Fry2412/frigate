@@ -831,6 +831,7 @@ async def onvif_probe(
             "ptz_supported": ptz_supported,
             "presets_count": presets_count,
             "autotrack_supported": autotrack_supported,
+            "auto_zoom_capable": ptz_supported and not autotrack_supported,
         }
 
         # Gather RTSP candidates

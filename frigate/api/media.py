@@ -143,6 +143,25 @@ async def camera_ptz_info(request: Request, camera_name: str):
             request.app.onvif.get_camera_info(camera_name), request.app.onvif.loop
         )
         result = future.result()
+
+        # Enrich with auto_zoom runtime status from shared metrics
+        az_metrics = request.app.auto_zoom_metrics.get(camera_name)
+        if az_metrics is not None:
+            result["auto_zoom_runtime"] = {
+                "enabled": bool(az_metrics.auto_zoom_enabled.value),
+                "state": str(az_metrics.automation_state.value),
+                "active": az_metrics.active.is_set(),
+                "current_zoom_level": float(az_metrics.current_zoom_level.value),
+                "desired_zoom_level": float(az_metrics.desired_zoom_level.value),
+                "primary_target_id": str(az_metrics.primary_target_id.value),
+                "last_action": str(az_metrics.last_action.value),
+                "last_action_reason": str(az_metrics.last_action_reason.value),
+                "last_suppression_reason": str(
+                    az_metrics.last_suppression_reason.value
+                ),
+                "support_status": str(az_metrics.support_status.value),
+            }
+
         return JSONResponse(content=result)
     else:
         return JSONResponse(

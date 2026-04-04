@@ -183,6 +183,16 @@ export default function OnvifProbeResults({
                 </span>
               </div>
             )}
+            {probeResult.ptz_supported && probeResult.auto_zoom_capable && (
+              <div>
+                <span className="text-muted-foreground">
+                  {t("cameraWizard.step2.autoZoomCapable")}:
+                </span>{" "}
+                <span className="text-primary-variant">
+                  {t("button.yes", { ns: "common" })}
+                </span>
+              </div>
+            )}
             {probeResult.ptz_supported &&
               probeResult.presets_count !== undefined && (
                 <div>

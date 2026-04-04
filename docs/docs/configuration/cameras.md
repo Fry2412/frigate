@@ -147,6 +147,8 @@ If your camera has multiple ONVIF profiles, you can specify which one to use for
 
 An ONVIF-capable camera that supports relative movement within the field of view (FOV) can also be configured to automatically track moving objects and keep them in the center of the frame. For autotracking setup, see the [autotracking](autotracking.md) docs.
 
+For fixed-view cameras with zoom capability (but no pan/tilt), Frigate also supports Auto Zoom — automatic zoom-level adjustment to keep tracked subjects at a useful size. See the [Auto Zoom section](autotracking.md#auto-zoom-zoom-only-framing) in the autotracking docs.
+
 ## ONVIF PTZ camera recommendations
 
 This list of working and non-working PTZ cameras is based on user feedback. If you'd like to report specific quirks or issues with a manufacturer or camera that would be helpful for other users, open a pull request to add to this list.

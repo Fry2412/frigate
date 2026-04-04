@@ -201,6 +201,7 @@ export type OnvifProbeResponse = {
   ptz_supported?: boolean;
   presets_count?: number;
   autotrack_supported?: boolean;
+  auto_zoom_capable?: boolean;
   move_status_supported?: boolean;
   rtsp_candidates?: OnvifRtspCandidate[];
   message?: string;

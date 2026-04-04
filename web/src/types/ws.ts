@@ -68,11 +68,14 @@ export interface FrigateCameraState {
     notifications: boolean;
     notifications_suspended: number;
     autotracking: boolean;
+    auto_zoom: boolean;
     alerts: boolean;
     detections: boolean;
     object_descriptions: boolean;
     review_descriptions: boolean;
   };
+  auto_zoom_state?: string;
+  auto_zoom_active?: boolean;
   motion: boolean;
   objects: ObjectType[];
   audio_detections: AudioDetection[];

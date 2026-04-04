@@ -8,7 +8,7 @@ from collections import defaultdict
 from enum import Enum
 from multiprocessing import Queue as MpQueue
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -41,6 +41,7 @@ from frigate.const import (
 from frigate.events.types import EventStateEnum, EventTypeEnum
 from frigate.models import Event, ReviewSegment, Timeline
 from frigate.ptz.autotrack import PtzAutoTrackerThread
+from frigate.ptz.auto_zoom import AutoZoomThread
 from frigate.track.tracked_object import TrackedObject
 from frigate.util.image import SharedMemoryFrameManager
 
@@ -60,6 +61,7 @@ class TrackedObjectProcessor(threading.Thread):
         dispatcher: Dispatcher,
         tracked_objects_queue: MpQueue,
         ptz_autotracker_thread: PtzAutoTrackerThread,
+        auto_zoom_thread: Optional[AutoZoomThread],
         stop_event: MpEvent,
     ) -> None:
         super().__init__(name="detected_frames_processor")
@@ -71,6 +73,7 @@ class TrackedObjectProcessor(threading.Thread):
         self.frame_manager = SharedMemoryFrameManager()
         self.last_motion_detected: dict[str, float] = {}
         self.ptz_autotracker_thread = ptz_autotracker_thread
+        self.auto_zoom_thread = auto_zoom_thread
 
         self.camera_config_subscriber = CameraConfigUpdateSubscriber(
             self.config,
@@ -151,6 +154,17 @@ class TrackedObjectProcessor(threading.Thread):
         def autotrack(camera: str, obj: TrackedObject, frame_name: str) -> None:
             self.ptz_autotracker_thread.ptz_autotracker.autotrack_object(camera, obj)
 
+        def auto_zoom_update(camera: str, activity: dict[str, Any]) -> None:
+            """Feed tracked object data to Auto Zoom engine."""
+            if self.auto_zoom_thread is not None:
+                # Build a lightweight dict for the engine from the activity objects
+                obj_dict = {}
+                for obj_info in activity.get("objects", []):
+                    obj_dict[obj_info["id"]] = obj_info
+                self.auto_zoom_thread.engine.on_tracked_object_update(
+                    camera, obj_dict
+                )
+
         def end(camera: str, obj: TrackedObject, frame_name: str) -> None:
             # populate has_snapshot
             obj.has_snapshot = self.should_save_snapshot(camera, obj)
@@ -172,6 +186,12 @@ class TrackedObjectProcessor(threading.Thread):
                 }
                 self.dispatcher.publish("events", json.dumps(message), retain=False)
                 self.ptz_autotracker_thread.ptz_autotracker.end_object(camera, obj)
+
+                # Notify Auto Zoom of object end
+                if self.auto_zoom_thread is not None:
+                    self.auto_zoom_thread.engine.on_object_end(
+                        camera, obj.obj_data["id"]
+                    )
 
             self.event_sender.publish(
                 (
@@ -236,6 +256,7 @@ class TrackedObjectProcessor(threading.Thread):
         camera_state.on("end", end)
         camera_state.on("snapshot", snapshot)
         camera_state.on("camera_activity", camera_activity)
+        camera_state.on("camera_activity", auto_zoom_update)
         self.camera_states[camera] = camera_state
 
     def should_save_snapshot(self, camera: str, obj: TrackedObject) -> bool:

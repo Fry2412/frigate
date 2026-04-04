@@ -1,19 +1,44 @@
 from enum import Enum
 from typing import Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..base import FrigateBaseModel
 from ..env import EnvString
 from .objects import DEFAULT_TRACKED_OBJECTS
 
-__all__ = ["OnvifConfig", "PtzAutotrackConfig", "ZoomingModeEnum"]
+__all__ = [
+    "AutoZoomConfig",
+    "AutoZoomSensitivityEnum",
+    "HomeZoomModeEnum",
+    "OnvifConfig",
+    "PtzAutotrackConfig",
+    "StationaryBehaviorEnum",
+    "ZoomingModeEnum",
+]
 
 
 class ZoomingModeEnum(str, Enum):
     disabled = "disabled"
     absolute = "absolute"
     relative = "relative"
+
+
+class AutoZoomSensitivityEnum(str, Enum):
+    conservative = "conservative"
+    balanced = "balanced"
+    responsive = "responsive"
+
+
+class StationaryBehaviorEnum(str, Enum):
+    ignore = "ignore"
+    limited = "limited"
+    allow = "allow"
+
+
+class HomeZoomModeEnum(str, Enum):
+    current_on_enable = "current_on_enable"
+    configured_level = "configured_level"
 
 
 class PtzAutotrackConfig(FrigateBaseModel):
@@ -91,6 +116,136 @@ class PtzAutotrackConfig(FrigateBaseModel):
         return weights
 
 
+class AutoZoomConfig(FrigateBaseModel):
+    """Configuration for zoom-only autoframing on fixed-view cameras."""
+
+    enabled: bool = Field(
+        default=False,
+        title="Enable Auto Zoom",
+        description="Enable or disable automatic zoom framing for this camera.",
+    )
+    track: list[str] = Field(
+        default=DEFAULT_TRACKED_OBJECTS,
+        title="Tracked objects",
+        description="List of object types that may trigger Auto Zoom.",
+    )
+    target_priority: list[str] = Field(
+        default_factory=list,
+        title="Target priority",
+        description="Ordered list of object classes defining selection priority. Defaults to track order.",
+    )
+    exclude_zones: list[str] = Field(
+        default_factory=list,
+        title="Excluded zones",
+        description="List of existing camera zone names where objects should not trigger Auto Zoom.",
+    )
+    target_ratio_min: float = Field(
+        default=0.05,
+        title="Minimum target ratio",
+        description="Minimum target box height ratio below which zoom-in is considered.",
+        gt=0.0,
+        lt=1.0,
+    )
+    target_ratio_max: float = Field(
+        default=0.30,
+        title="Maximum target ratio",
+        description="Maximum target box height ratio above which zoom-out or hold is preferred.",
+        gt=0.0,
+        lt=1.0,
+    )
+    min_zoom: Optional[float] = Field(
+        default=None,
+        title="Minimum zoom level",
+        description="Optional lower bound for the zoom range used by Auto Zoom.",
+        ge=0.0,
+    )
+    max_zoom: Optional[float] = Field(
+        default=None,
+        title="Maximum zoom level",
+        description="Optional upper bound for the zoom range used by Auto Zoom.",
+        ge=0.0,
+    )
+    return_to_home_timeout: int = Field(
+        default=15,
+        title="Return to home timeout",
+        description="Seconds to wait after losing a target before returning to home zoom.",
+        ge=1,
+    )
+    edge_margin: float = Field(
+        default=0.1,
+        title="Edge margin",
+        description="Normalized distance from frame edges where zoom-in is restricted.",
+        ge=0.0,
+        lt=0.5,
+    )
+    sensitivity: AutoZoomSensitivityEnum = Field(
+        default=AutoZoomSensitivityEnum.conservative,
+        title="Sensitivity",
+        description="How aggressively Auto Zoom responds: conservative, balanced, or responsive.",
+    )
+    hold_time: int = Field(
+        default=5,
+        title="Hold time",
+        description="Seconds to hold current zoom after reaching the desired framing band.",
+        ge=0,
+    )
+    damping: float = Field(
+        default=0.5,
+        title="Damping",
+        description="Smoothing factor for zoom changes to prevent oscillation. Range 0.0 to 1.0.",
+        ge=0.0,
+        le=1.0,
+    )
+    manual_override_timeout: int = Field(
+        default=30,
+        title="Manual override timeout",
+        description="Seconds to pause Auto Zoom after a manual zoom/PTZ command.",
+        ge=1,
+    )
+    stationary_behavior: StationaryBehaviorEnum = Field(
+        default=StationaryBehaviorEnum.limited,
+        title="Stationary behavior",
+        description="How to handle stationary targets: ignore, limited zoom, or allow full zoom.",
+    )
+    home_zoom_mode: HomeZoomModeEnum = Field(
+        default=HomeZoomModeEnum.current_on_enable,
+        title="Home zoom mode",
+        description="How the home/default zoom level is determined.",
+    )
+    home_zoom_level: Optional[float] = Field(
+        default=None,
+        title="Home zoom level",
+        description="Explicit zoom level to return to when home_zoom_mode is configured_level.",
+        ge=0.0,
+    )
+    enabled_in_config: Optional[bool] = Field(
+        default=None,
+        title="Original Auto Zoom state",
+        description="Internal field to track whether Auto Zoom was enabled in configuration.",
+    )
+
+    @model_validator(mode="after")
+    def validate_auto_zoom_config(self):
+        """Validate Auto Zoom configuration cross-field rules."""
+        if self.target_ratio_min >= self.target_ratio_max:
+            raise ValueError(
+                "target_ratio_min must be less than target_ratio_max"
+            )
+        if self.min_zoom is not None and self.max_zoom is not None:
+            if self.min_zoom > self.max_zoom:
+                raise ValueError(
+                    "min_zoom must be less than or equal to max_zoom"
+                )
+        if (
+            self.home_zoom_mode == HomeZoomModeEnum.configured_level
+            and self.home_zoom_level is None
+        ):
+            raise ValueError(
+                "home_zoom_level is required when home_zoom_mode is configured_level"
+            )
+        return self
+
+
 class OnvifConfig(FrigateBaseModel):
     host: EnvString = Field(
         default="",
@@ -126,6 +281,11 @@ class OnvifConfig(FrigateBaseModel):
         default_factory=PtzAutotrackConfig,
         title="Autotracking",
         description="Automatically track moving objects and keep them centered in the frame using PTZ camera movements.",
+    )
+    auto_zoom: AutoZoomConfig = Field(
+        default_factory=AutoZoomConfig,
+        title="Auto Zoom",
+        description="Automatically adjust zoom to keep a tracked subject at a useful size on fixed-view cameras.",
     )
     ignore_time_mismatch: bool = Field(
         default=False,

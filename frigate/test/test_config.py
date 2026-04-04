@@ -1676,5 +1676,280 @@ class TestConfig(unittest.TestCase):
         self.assertRaises(ValueError, lambda: FrigateConfig(**config))
 
 
+class TestAutoZoomConfig(unittest.TestCase):
+    """Tests for Auto Zoom configuration validation contract."""
+
+    def setUp(self):
+        self.minimal = {
+            "mqtt": {"host": "mqtt"},
+            "cameras": {
+                "back": {
+                    "ffmpeg": {
+                        "inputs": [
+                            {"path": "rtsp://10.0.0.1:554/video", "roles": ["detect"]}
+                        ]
+                    },
+                    "detect": {
+                        "height": 1080,
+                        "width": 1920,
+                        "fps": 5,
+                    },
+                }
+            },
+        }
+
+        if not os.path.exists(MODEL_CACHE_DIR) and not os.path.islink(MODEL_CACHE_DIR):
+            os.makedirs(MODEL_CACHE_DIR)
+
+    def test_auto_zoom_disabled_by_default(self):
+        """Auto Zoom must be disabled by default per contract."""
+        config = FrigateConfig(**self.minimal)
+        cam = config.cameras["back"]
+        assert cam.onvif.auto_zoom.enabled is False
+
+    def test_auto_zoom_enabled_explicit(self):
+        """Auto Zoom can be explicitly enabled."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "host": "192.168.1.10",
+                            "auto_zoom": {"enabled": True},
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        config = FrigateConfig(**cfg)
+        assert config.cameras["back"].onvif.auto_zoom.enabled is True
+
+    def test_auto_zoom_defaults_are_conservative(self):
+        """Default field values must be conservative per contract."""
+        config = FrigateConfig(**self.minimal)
+        az = config.cameras["back"].onvif.auto_zoom
+        assert az.sensitivity == "conservative"
+        assert az.stationary_behavior == "limited"
+        assert az.home_zoom_mode == "current_on_enable"
+        assert az.target_ratio_min < az.target_ratio_max
+
+    def test_auto_zoom_target_ratio_min_gte_max_fails(self):
+        """target_ratio_min >= target_ratio_max must fail validation."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {
+                                "target_ratio_min": 0.5,
+                                "target_ratio_max": 0.3,
+                            }
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        self.assertRaises(ValidationError, lambda: FrigateConfig(**cfg))
+
+    def test_auto_zoom_target_ratio_equal_fails(self):
+        """target_ratio_min == target_ratio_max must fail validation."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {
+                                "target_ratio_min": 0.3,
+                                "target_ratio_max": 0.3,
+                            }
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        self.assertRaises(ValidationError, lambda: FrigateConfig(**cfg))
+
+    def test_auto_zoom_edge_margin_range(self):
+        """edge_margin must be in [0.0, 0.5)."""
+        for bad_value in [-0.1, 0.5, 1.0]:
+            cfg = deep_merge(
+                {
+                    "cameras": {
+                        "back": {
+                            "onvif": {
+                                "auto_zoom": {"edge_margin": bad_value}
+                            }
+                        }
+                    }
+                },
+                self.minimal,
+            )
+            with self.assertRaises(ValidationError, msg=f"edge_margin={bad_value}"):
+                FrigateConfig(**cfg)
+
+    def test_auto_zoom_track_defaults_to_tracked_objects(self):
+        """track list should default to DEFAULT_TRACKED_OBJECTS."""
+        config = FrigateConfig(**self.minimal)
+        az = config.cameras["back"].onvif.auto_zoom
+        assert len(az.track) > 0
+
+    def test_auto_zoom_exclude_zones_defaults_empty(self):
+        """exclude_zones defaults to an empty list."""
+        config = FrigateConfig(**self.minimal)
+        az = config.cameras["back"].onvif.auto_zoom
+        assert az.exclude_zones == []
+
+    def test_auto_zoom_home_zoom_level_required_for_configured_level(self):
+        """home_zoom_level is required when home_zoom_mode is configured_level."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {
+                                "home_zoom_mode": "configured_level",
+                                # home_zoom_level not set
+                            }
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        self.assertRaises(ValidationError, lambda: FrigateConfig(**cfg))
+
+    def test_auto_zoom_home_zoom_level_accepted_when_configured(self):
+        """home_zoom_level is accepted when mode is configured_level."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {
+                                "home_zoom_mode": "configured_level",
+                                "home_zoom_level": 0.5,
+                            }
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        config = FrigateConfig(**cfg)
+        assert config.cameras["back"].onvif.auto_zoom.home_zoom_level == 0.5
+
+    def test_auto_zoom_sensitivity_values(self):
+        """Sensitivity must be one of the defined enum values."""
+        for valid in ["conservative", "balanced", "responsive"]:
+            cfg = deep_merge(
+                {
+                    "cameras": {
+                        "back": {
+                            "onvif": {
+                                "auto_zoom": {"sensitivity": valid}
+                            }
+                        }
+                    }
+                },
+                self.minimal,
+            )
+            config = FrigateConfig(**cfg)
+            assert config.cameras["back"].onvif.auto_zoom.sensitivity == valid
+
+    def test_auto_zoom_invalid_sensitivity_fails(self):
+        """Invalid sensitivity value must fail validation."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {"sensitivity": "aggressive"}
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        self.assertRaises(ValidationError, lambda: FrigateConfig(**cfg))
+
+    def test_auto_zoom_does_not_affect_autotracking_defaults(self):
+        """Adding auto_zoom config must not alter autotracking defaults."""
+        base_config = FrigateConfig(**self.minimal)
+        modified = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {"enabled": True}
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        modified_config = FrigateConfig(**modified)
+        assert (
+            base_config.cameras["back"].onvif.autotracking.enabled
+            == modified_config.cameras["back"].onvif.autotracking.enabled
+        )
+
+    def test_auto_zoom_existing_config_remains_valid(self):
+        """Existing config without auto_zoom fields must remain valid."""
+        config = FrigateConfig(**self.minimal)
+        assert config.cameras["back"].onvif.auto_zoom is not None
+        assert config.cameras["back"].onvif.auto_zoom.enabled is False
+
+    def test_auto_zoom_exclude_zones_valid_names(self):
+        """exclude_zones with valid zone names should pass validation."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "zones": {
+                            "driveway": {
+                                "coordinates": "0.1,0.1,0.2,0.1,0.2,0.2,0.1,0.2",
+                            },
+                            "porch": {
+                                "coordinates": "0.3,0.3,0.4,0.3,0.4,0.4,0.3,0.4",
+                            },
+                        },
+                        "onvif": {
+                            "auto_zoom": {
+                                "enabled": True,
+                                "exclude_zones": ["driveway"],
+                            }
+                        },
+                    }
+                }
+            },
+            self.minimal,
+        )
+        config = FrigateConfig(**cfg)
+        assert config.cameras["back"].onvif.auto_zoom.exclude_zones == ["driveway"]
+
+    def test_auto_zoom_exclude_zones_invalid_name_fails(self):
+        """exclude_zones referencing a nonexistent zone should fail validation."""
+        cfg = deep_merge(
+            {
+                "cameras": {
+                    "back": {
+                        "onvif": {
+                            "auto_zoom": {
+                                "enabled": True,
+                                "exclude_zones": ["nonexistent_zone"],
+                            }
+                        }
+                    }
+                }
+            },
+            self.minimal,
+        )
+        with self.assertRaises(ValueError):
+            FrigateConfig(**cfg)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

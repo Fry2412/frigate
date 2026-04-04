@@ -214,3 +214,83 @@ Some cameras have firmware that reports that FOV RelativeMove, the ONVIF command
 ### Frigate reports an error saying that calibration has failed. Why?
 
 Calibration measures the amount of time it takes for Frigate to make a series of movements with your PTZ. This error message is recorded in the log if these values are too high for Frigate to support calibrated autotracking. This is often the case when your camera's motor or network connection is too slow or your camera's firmware doesn't report the motor status in a timely manner. You can try running without calibration (just remove the `movement_weights` line from your config and restart), but if calibration fails, this often means that autotracking will behave unpredictably.
+
+## Auto Zoom (Zoom-Only Framing)
+
+Auto Zoom is a separate feature from autotracking that provides automatic zoom-only framing for fixed-view cameras. Unlike autotracking which uses pan/tilt/zoom on PTZ cameras, Auto Zoom only adjusts the zoom level to keep tracked subjects at a useful size in the frame.
+
+### Requirements
+
+- An ONVIF-capable camera with zoom support (absolute zoom preferred)
+- The camera should be fixed-position (no pan/tilt needed)
+- Auto Zoom and autotracking are mutually exclusive — enable one or the other
+
+### How It Works
+
+1. When a tracked object (person, vehicle, etc.) enters the frame, Auto Zoom evaluates whether the target is too small or too large relative to configurable ratio thresholds
+2. If the target is below the minimum ratio, Auto Zoom gradually zooms in
+3. If the target exceeds the maximum ratio or reaches frame edges, Auto Zoom holds or zooms out
+4. When all targets leave the frame, Auto Zoom waits a configurable grace period then returns to the home zoom level
+5. Manual PTZ commands automatically pause Auto Zoom for a configurable timeout
+
+### Configuration
+
+Enable Auto Zoom in your camera's ONVIF configuration:
+
+```yaml
+cameras:
+  front_door:
+    onvif:
+      host: 192.168.1.100
+      port: 8000
+      user: admin
+      password: password
+      auto_zoom:
+        enabled: true
+        track:
+          - person
+          - car
+        sensitivity: balanced
+        target_ratio_min: 0.05
+        target_ratio_max: 0.25
+        edge_margin: 0.05
+        damping: 0.3
+        return_to_home_timeout: 10
+        manual_override_timeout: 30
+        exclude_zones:
+          - street
+```
+
+### Key Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Enable Auto Zoom for this camera |
+| `track` | Tracked objects | Object types that trigger Auto Zoom |
+| `sensitivity` | `balanced` | How aggressively zoom responds: `conservative`, `balanced`, or `responsive` |
+| `target_ratio_min` | `0.05` | Target height ratio below which zoom-in begins |
+| `target_ratio_max` | `0.25` | Target height ratio above which zoom-out is preferred |
+| `edge_margin` | `0.05` | Frame edge margin where zoom-in is suppressed |
+| `damping` | `0.3` | Smoothing factor to prevent oscillation (0.0–1.0) |
+| `return_to_home_timeout` | `10` | Seconds after target loss before returning to home zoom |
+| `manual_override_timeout` | `30` | Seconds to pause after manual PTZ commands |
+| `exclude_zones` | `[]` | Zone names where targets won't trigger zoom |
+| `stationary_behavior` | `limited` | How to handle stationary targets: `ignore`, `limited`, or `allow` |
+
+### MQTT Control
+
+Auto Zoom can be controlled via MQTT:
+
+- **Enable/Disable**: Publish `ON` or `OFF` to `frigate/<camera_name>/auto_zoom/set`
+- **Current State**: Subscribe to `frigate/<camera_name>/auto_zoom/state`
+- **Active Status**: Subscribe to `frigate/<camera_name>/auto_zoom/active`
+
+### Differences from Autotracking
+
+| Feature | Autotracking | Auto Zoom |
+|---------|-------------|-----------|
+| Movement | Pan + Tilt + Zoom | Zoom only |
+| Camera type | PTZ cameras | Fixed-view with zoom |
+| Complexity | High (calibration needed) | Low (no calibration) |
+| Use case | Follow subjects across scene | Keep subjects at useful size |
+

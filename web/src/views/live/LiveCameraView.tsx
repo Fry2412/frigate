@@ -3,6 +3,7 @@ import {
   useAudioState,
   useAudioTranscriptionState,
   useAutotrackingState,
+  useAutoZoomState,
   useDetectState,
   useEnabledState,
   usePtzCommand,
@@ -86,6 +87,8 @@ import {
   MdPersonOff,
   MdPersonSearch,
   MdPhotoCamera,
+  MdZoomIn,
+  MdZoomOut,
 } from "react-icons/md";
 import { Link, useNavigate } from "react-router-dom";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
@@ -671,6 +674,7 @@ export default function LiveCameraView({
               recordingEnabled={camera.record.enabled_in_config}
               audioDetectEnabled={camera.audio.enabled_in_config}
               autotrackingEnabled={camera.onvif.autotracking.enabled_in_config}
+              autoZoomEnabled={camera.onvif.auto_zoom.enabled_in_config}
               transcriptionEnabled={
                 camera.audio_transcription.enabled_in_config
               }
@@ -820,6 +824,7 @@ type FrigateCameraFeaturesProps = {
   recordingEnabled: boolean;
   audioDetectEnabled: boolean;
   autotrackingEnabled: boolean;
+  autoZoomEnabled: boolean;
   transcriptionEnabled: boolean;
   fullscreen: boolean;
   streamName: string;
@@ -842,6 +847,7 @@ function FrigateCameraFeatures({
   recordingEnabled,
   audioDetectEnabled,
   autotrackingEnabled,
+  autoZoomEnabled,
   transcriptionEnabled,
   fullscreen,
   streamName,
@@ -877,6 +883,9 @@ function FrigateCameraFeatures({
   const { payload: audioState, send: sendAudio } = useAudioState(camera.name);
   const { payload: autotrackingState, send: sendAutotracking } =
     useAutotrackingState(camera.name);
+  const { payload: autoZoomState, send: sendAutoZoom } = useAutoZoomState(
+    camera.name,
+  );
   const { payload: transcriptionState, send: sendTranscription } =
     useAudioTranscriptionState(camera.name);
 
@@ -1135,6 +1144,23 @@ function FrigateCameraFeatures({
                 }
                 onClick={() =>
                   sendAutotracking(autotrackingState == "ON" ? "OFF" : "ON")
+                }
+                disabled={!cameraEnabled}
+              />
+            )}
+            {autoZoomEnabled && (
+              <CameraFeatureToggle
+                className="p-2 md:p-0"
+                variant={fullscreen ? "overlay" : "primary"}
+                Icon={autoZoomState == "ON" ? MdZoomIn : MdZoomOut}
+                isActive={autoZoomState == "ON"}
+                title={
+                  autoZoomState == "ON"
+                    ? t("autoZoom.disable")
+                    : t("autoZoom.enable")
+                }
+                onClick={() =>
+                  sendAutoZoom(autoZoomState == "ON" ? "OFF" : "ON")
                 }
                 disabled={!cameraEnabled}
               />
@@ -1537,6 +1563,15 @@ function FrigateCameraFeatures({
                     isChecked={autotrackingState == "ON"}
                     onCheckedChange={() =>
                       sendAutotracking(autotrackingState == "ON" ? "OFF" : "ON")
+                    }
+                  />
+                )}
+                {autoZoomEnabled && (
+                  <FilterSwitch
+                    label={t("cameraSettings.autoZoom")}
+                    isChecked={autoZoomState == "ON"}
+                    onCheckedChange={() =>
+                      sendAutoZoom(autoZoomState == "ON" ? "OFF" : "ON")
                     }
                   />
                 )}

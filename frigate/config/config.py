@@ -313,6 +313,20 @@ def verify_autotrack_zones(camera_config: CameraConfig) -> ValueError | None:
         )
 
 
+def verify_auto_zoom_zones(camera_config: CameraConfig) -> None:
+    """Verify that auto_zoom exclude_zones reference existing camera zones."""
+    az = camera_config.onvif.auto_zoom
+    if not az.exclude_zones:
+        return
+    defined_zones = set(camera_config.zones.keys())
+    for zone_name in az.exclude_zones:
+        if zone_name not in defined_zones:
+            raise ValueError(
+                f"Camera {camera_config.name} auto_zoom exclude_zones references "
+                f"zone '{zone_name}' which is not defined in the camera's zones."
+            )
+
+
 def verify_motion_and_detect(camera_config: CameraConfig) -> ValueError | None:
     """Verify that motion detection is not disabled and object detection is enabled."""
     if camera_config.detect.enabled and not camera_config.motion.enabled:
@@ -923,6 +937,7 @@ class FrigateConfig(FrigateBaseModel):
             verify_zone_objects_are_tracked(camera_config)
             verify_required_zones_exist(camera_config)
             verify_autotrack_zones(camera_config)
+            verify_auto_zoom_zones(camera_config)
             verify_motion_and_detect(camera_config)
             verify_objects_track(camera_config, labelmap_objects)
             verify_lpr_and_face(self, camera_config)

@@ -17,10 +17,10 @@
 
 **Purpose**: Establish shared type and UI scaffolding before backend/runtime work starts.
 
-- [ ] T001 Add shared Auto Zoom metric and runtime state placeholders in `frigate/camera/__init__.py`
-- [ ] T002 [P] Extend Auto Zoom capability and runtime typings in `web/src/types/ptz.ts` and `web/src/types/ws.ts`
-- [ ] T003 [P] Extend camera configuration typings for Auto Zoom in `web/src/types/frigateConfig.ts` and `web/src/types/cameraWizard.ts`
-- [ ] T004 [P] Add initial Auto Zoom translation key placeholders in `web/public/locales/en/views/live.json` and `web/public/locales/en/config/cameras.json`
+- [X] T001 Add shared Auto Zoom metric and runtime state placeholders in `frigate/camera/__init__.py`
+- [X] T002 [P] Extend Auto Zoom capability and runtime typings in `web/src/types/ptz.ts` and `web/src/types/ws.ts`
+- [X] T003 [P] Extend camera configuration typings for Auto Zoom in `web/src/types/frigateConfig.ts` and `web/src/types/cameraWizard.ts`
+- [X] T004 [P] Add initial Auto Zoom translation key placeholders in `web/public/locales/en/views/live.json` and `web/public/locales/en/config/cameras.json`
 
 ---
 
@@ -30,14 +30,14 @@
 
 **⚠️ CRITICAL**: No user story work should begin until this phase is complete.
 
-- [ ] T005 [P] Add Auto Zoom config contract tests in `frigate/test/test_config.py`
-- [ ] T006 Implement Auto Zoom config fields, defaults, and validation in `frigate/config/camera/onvif.py` and `frigate/util/config.py`
-- [ ] T007 [P] Add HTTP contract coverage for Auto Zoom capability and PTZ info surfaces in `frigate/test/http_api/test_http_camera_access.py` and `frigate/test/http_api/test_http_media.py`
-- [ ] T008 Extend ONVIF probing and camera capability reporting for Auto Zoom in `frigate/ptz/onvif.py` and `frigate/api/camera.py`
-- [ ] T009 Add shared Auto Zoom session and lifecycle plumbing in `frigate/app.py`, `frigate/camera/maintainer.py`, and `frigate/camera/state.py`
-- [ ] T010 [P] Add shared Auto Zoom control/state topic plumbing in `frigate/comms/dispatcher.py` and `frigate/comms/mqtt.py`
-- [ ] T011 Add required Auto Zoom runtime fields and structured status plumbing in `frigate/api/media.py`, `frigate/api/camera.py`, `frigate/camera/state.py`, and `frigate/comms/mqtt.py`
-- [ ] T012 Capture additive config/API compatibility notes in `docs/docs/configuration/reference.md` and `docs/docs/integrations/api.md`
+- [X] T005 [P] Add Auto Zoom config contract tests in `frigate/test/test_config.py`
+- [X] T006 Implement Auto Zoom config fields, defaults, and validation in `frigate/config/camera/onvif.py` and `frigate/util/config.py`
+- [X] T007 [P] Add HTTP contract coverage for Auto Zoom capability and PTZ info surfaces in `frigate/test/http_api/test_http_camera_access.py` and `frigate/test/http_api/test_http_media.py`
+- [X] T008 Extend ONVIF probing and camera capability reporting for Auto Zoom in `frigate/ptz/onvif.py` and `frigate/api/camera.py`
+- [X] T009 Add shared Auto Zoom session and lifecycle plumbing in `frigate/app.py`, `frigate/camera/maintainer.py`, and `frigate/camera/state.py`
+- [X] T010 [P] Add shared Auto Zoom control/state topic plumbing in `frigate/comms/dispatcher.py` and `frigate/comms/mqtt.py`
+- [X] T011 Add required Auto Zoom runtime fields and structured status plumbing in `frigate/api/media.py`, `frigate/api/camera.py`, `frigate/camera/state.py`, and `frigate/comms/mqtt.py`
+- [X] T012 Capture additive config/API compatibility notes in `docs/docs/configuration/reference.md` and `docs/docs/integrations/api.md`
 
 **Checkpoint**: Foundation ready — user story implementation can proceed.
 
@@ -51,16 +51,16 @@
 
 ### Tests for User Story 1
 
-- [ ] T013 [P] [US1] Add single-target zoom-in and hold behavior tests in `frigate/test/test_auto_zoom.py`
-- [ ] T014 [P] [US1] Add person-target runtime API coverage in `frigate/test/http_api/test_http_media.py`
+- [X] T013 [P] [US1] Add single-target zoom-in and hold behavior tests in `frigate/test/test_auto_zoom.py`
+- [X] T014 [P] [US1] Add person-target runtime API coverage in `frigate/test/http_api/test_http_media.py`
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Create the Auto Zoom policy, session, and target-selection module in `frigate/ptz/auto_zoom.py`
-- [ ] T016 [US1] Wire person-target qualification and Auto Zoom state transitions into `frigate/track/object_processing.py`
-- [ ] T017 [US1] Expose Auto Zoom runtime state in `frigate/api/media.py` and `frigate/camera/state.py`
-- [ ] T018 [US1] Add actionable Auto Zoom logging for capability evaluation, state transitions, suppression, suspension, and recovery in `frigate/ptz/auto_zoom.py` and `frigate/ptz/onvif.py`
-- [ ] T019 [US1] Show Auto Zoom live status and labels in `web/src/views/live/LiveCameraView.tsx` and `web/public/locales/en/views/live.json`
+- [X] T015 [P] [US1] Create the Auto Zoom policy, session, and target-selection module in `frigate/ptz/auto_zoom.py`
+- [X] T016 [US1] Wire person-target qualification and Auto Zoom state transitions into `frigate/track/object_processing.py`
+- [X] T017 [US1] Expose Auto Zoom runtime state in `frigate/api/media.py` and `frigate/camera/state.py`
+- [X] T018 [US1] Add actionable Auto Zoom logging for capability evaluation, state transitions, suppression, suspension, and recovery in `frigate/ptz/auto_zoom.py` and `frigate/ptz/onvif.py`
+- [X] T019 [US1] Show Auto Zoom live status and labels in `web/src/views/live/LiveCameraView.tsx` and `web/public/locales/en/views/live.json`
 
 **Checkpoint**: User Story 1 is independently functional and demoable.
 
@@ -74,14 +74,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Add vehicle framing and edge-safety behavior tests in `frigate/test/test_auto_zoom.py`
-- [ ] T021 [P] [US2] Add vehicle-capable PTZ info coverage in `frigate/test/http_api/test_http_media.py`
+- [X] T020 [P] [US2] Add vehicle framing and edge-safety behavior tests in `frigate/test/test_auto_zoom.py`
+- [X] T021 [P] [US2] Add vehicle-capable PTZ info coverage in `frigate/test/http_api/test_http_media.py`
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] Extend class-priority and vehicle-target selection rules in `frigate/ptz/auto_zoom.py`
-- [ ] T023 [US2] Implement edge-margin, oversize, and context-preserving zoom-out logic in `frigate/ptz/auto_zoom.py`
-- [ ] T024 [US2] Surface vehicle-capable Auto Zoom support in `web/src/types/ptz.ts` and `web/src/components/settings/wizard/OnvifProbeResults.tsx`
+- [X] T022 [US2] Extend class-priority and vehicle-target selection rules in `frigate/ptz/auto_zoom.py`
+- [X] T023 [US2] Implement edge-margin, oversize, and context-preserving zoom-out logic in `frigate/ptz/auto_zoom.py`
+- [X] T024 [US2] Surface vehicle-capable Auto Zoom support in `web/src/types/ptz.ts` and `web/src/components/settings/wizard/OnvifProbeResults.tsx`
 
 **Checkpoint**: User Stories 1 and 2 are independently functional.
 
@@ -95,14 +95,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T025 [P] [US3] Add lost-target grace and reacquisition tests in `frigate/test/test_auto_zoom.py`
-- [ ] T026 [P] [US3] Add home-zoom configuration validation coverage in `frigate/test/test_config.py`
+- [X] T025 [P] [US3] Add lost-target grace and reacquisition tests in `frigate/test/test_auto_zoom.py`
+- [X] T026 [P] [US3] Add home-zoom configuration validation coverage in `frigate/test/test_config.py`
 
 ### Implementation for User Story 3
 
-- [ ] T027 [US3] Implement lost-target grace, hold, and returning-home transitions in `frigate/ptz/auto_zoom.py`
-- [ ] T028 [US3] Route home/default zoom commands through ONVIF control in `frigate/ptz/onvif.py` and `frigate/ptz/auto_zoom.py`
-- [ ] T029 [US3] Expose returning-home state in `frigate/api/media.py` and `web/src/views/live/LiveCameraView.tsx`
+- [X] T027 [US3] Implement lost-target grace, hold, and returning-home transitions in `frigate/ptz/auto_zoom.py`
+- [X] T028 [US3] Route home/default zoom commands through ONVIF control in `frigate/ptz/onvif.py` and `frigate/ptz/auto_zoom.py`
+- [X] T029 [US3] Expose returning-home state in `frigate/api/media.py` and `web/src/views/live/LiveCameraView.tsx`
 
 **Checkpoint**: User Stories 1–3 cover the core MVP loop end-to-end.
 
@@ -116,14 +116,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T030 [P] [US4] Add hysteresis, hold-time, and reversal-damping tests in `frigate/test/test_auto_zoom.py`
-- [ ] T031 [P] [US4] Add realtime-safe throttling regression coverage in `frigate/test/test_motion_detector.py` and `frigate/test/test_video.py`
+- [X] T030 [P] [US4] Add hysteresis, hold-time, and reversal-damping tests in `frigate/test/test_auto_zoom.py`
+- [X] T031 [P] [US4] Add realtime-safe throttling regression coverage in `frigate/test/test_motion_detector.py` and `frigate/test/test_video.py`
 
 ### Implementation for User Story 4
 
-- [ ] T032 [US4] Implement hysteresis, command cooldown, and settle-time damping in `frigate/ptz/auto_zoom.py`
-- [ ] T033 [US4] Gate Auto Zoom decisions on PTZ metrics and stale feedback safety in `frigate/camera/__init__.py` and `frigate/ptz/onvif.py`
-- [ ] T034 [US4] Prevent unstable multi-object handoffs and stationary overfocus in `frigate/ptz/auto_zoom.py`
+- [X] T032 [US4] Implement hysteresis, command cooldown, and settle-time damping in `frigate/ptz/auto_zoom.py`
+- [X] T033 [US4] Gate Auto Zoom decisions on PTZ metrics and stale feedback safety in `frigate/camera/__init__.py` and `frigate/ptz/onvif.py`
+- [X] T034 [US4] Prevent unstable multi-object handoffs and stationary overfocus in `frigate/ptz/auto_zoom.py`
 
 **Checkpoint**: The Auto Zoom loop is stable enough for prolonged use.
 
@@ -137,16 +137,16 @@
 
 ### Tests for User Story 5
 
-- [ ] T035 [P] [US5] Add enable-disable and manual-override tests in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
-- [ ] T036 [P] [US5] Add Vitest coverage for Auto Zoom live controls in `web/src/views/live/LiveCameraView.test.tsx` and `web/src/api/ws.ts`
-- [ ] T037 [P] [US5] Add Vitest coverage for Auto Zoom settings controls in `web/src/views/settings/ObjectSettingsView.test.tsx` and `web/src/views/settings/ObjectSettingsView.tsx`
+- [X] T035 [P] [US5] Add enable-disable and manual-override tests in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
+- [X] T036 [P] [US5] Add Vitest coverage for Auto Zoom live controls in `web/src/views/live/LiveCameraView.test.tsx` and `web/src/api/ws.ts`
+- [X] T037 [P] [US5] Add Vitest coverage for Auto Zoom settings controls in `web/src/views/settings/ObjectSettingsView.test.tsx` and `web/src/views/settings/ObjectSettingsView.tsx`
 
 ### Implementation for User Story 5
 
-- [ ] T038 [US5] Implement manual override pause/resume and enable-state arbitration in `frigate/comms/dispatcher.py` and `frigate/ptz/auto_zoom.py`
-- [ ] T039 [US5] Add `auto_zoom/set`, `auto_zoom/state`, `auto_zoom/active`, and `auto_zoom/status` MQTT topics in `frigate/comms/mqtt.py` and `frigate/comms/dispatcher.py`
-- [ ] T040 [US5] Add live Auto Zoom control hooks in `web/src/api/ws.ts` and `web/src/views/live/LiveCameraView.tsx`
-- [ ] T041 [US5] Add camera settings controls for Auto Zoom enablement and thresholds in `web/src/views/settings/ObjectSettingsView.tsx` and `web/public/locales/en/config/cameras.json`
+- [X] T038 [US5] Implement manual override pause/resume and enable-state arbitration in `frigate/comms/dispatcher.py` and `frigate/ptz/auto_zoom.py`
+- [X] T039 [US5] Add `auto_zoom/set`, `auto_zoom/state`, `auto_zoom/active`, and `auto_zoom/status` MQTT topics in `frigate/comms/mqtt.py` and `frigate/comms/dispatcher.py`
+- [X] T040 [US5] Add live Auto Zoom control hooks in `web/src/api/ws.ts` and `web/src/views/live/LiveCameraView.tsx`
+- [X] T041 [US5] Add camera settings controls for Auto Zoom enablement and thresholds in `web/src/views/settings/ObjectSettingsView.tsx` and `web/public/locales/en/config/cameras.json`
 
 **Checkpoint**: Operators can safely enable, pause, and resume Auto Zoom.
 
@@ -160,13 +160,13 @@
 
 ### Tests for User Story 6
 
-- [ ] T042 [P] [US6] Add excluded-zone and motion-mask-separation tests in `frigate/test/test_auto_zoom.py` and `frigate/test/test_config.py`
+- [X] T042 [P] [US6] Add excluded-zone and motion-mask-separation tests in `frigate/test/test_auto_zoom.py` and `frigate/test/test_config.py`
 
 ### Implementation for User Story 6
 
-- [ ] T043 [US6] Implement excluded-zone eligibility and fallback behavior in `frigate/ptz/auto_zoom.py` and `frigate/track/object_processing.py`
-- [ ] T044 [US6] Validate Auto Zoom excluded zone names against camera zones in `frigate/config/camera/onvif.py` and `frigate/config/camera/zone.py`
-- [ ] T045 [US6] Add excluded-zone controls and help text in `web/src/views/settings/ObjectSettingsView.tsx` and `web/public/locales/en/config/cameras.json`
+- [X] T043 [US6] Implement excluded-zone eligibility and fallback behavior in `frigate/ptz/auto_zoom.py` and `frigate/track/object_processing.py`
+- [X] T044 [US6] Validate Auto Zoom excluded zone names against camera zones in `frigate/config/camera/onvif.py` and `frigate/config/camera/zone.py`
+- [X] T045 [US6] Add excluded-zone controls and help text in `web/src/views/settings/ObjectSettingsView.tsx` and `web/public/locales/en/config/cameras.json`
 
 **Checkpoint**: Users can suppress distracting zoom behavior in selected scene regions.
 
@@ -176,14 +176,14 @@
 
 **Purpose**: Finish documentation, regression validation, and rollout readiness.
 
-- [ ] T046 [P] Update Auto Zoom user documentation in `docs/docs/configuration/autotracking.md` and `docs/docs/configuration/cameras.md`
-- [ ] T047 [P] Update Auto Zoom API and MQTT documentation in `docs/docs/integrations/api.md` and `docs/docs/integrations/mqtt.md`
-- [ ] T048 [P] Document security review notes for Auto Zoom MQTT/API control surfaces in `docs/docs/integrations/mqtt.md` and `docs/docs/integrations/api.md`
-- [ ] T049 Run Auto Zoom backend behavior validation in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
-- [ ] T050 Run Auto Zoom config and regression validation in `frigate/test/test_config.py` and `frigate/test/test_motion_detector.py`
-- [ ] T051 Run Auto Zoom observability and runtime-field validation in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
-- [ ] T052 Run frontend Vitest, lint/build, and validate Auto Zoom i18n coverage in `web/src/views/live/LiveCameraView.test.tsx`, `web/src/views/settings/ObjectSettingsView.test.tsx`, and `web/public/locales/en/views/live.json`
-- [ ] T053 Record quickstart validation outcomes in `specs/001-auto-zoom/quickstart.md`
+- [X] T046 [P] Update Auto Zoom user documentation in `docs/docs/configuration/autotracking.md` and `docs/docs/configuration/cameras.md`
+- [X] T047 [P] Update Auto Zoom API and MQTT documentation in `docs/docs/integrations/api.md` and `docs/docs/integrations/mqtt.md`
+- [X] T048 [P] Document security review notes for Auto Zoom MQTT/API control surfaces in `docs/docs/integrations/mqtt.md` and `docs/docs/integrations/api.md`
+- [X] T049 Run Auto Zoom backend behavior validation in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
+- [X] T050 Run Auto Zoom config and regression validation in `frigate/test/test_config.py` and `frigate/test/test_motion_detector.py`
+- [X] T051 Run Auto Zoom observability and runtime-field validation in `frigate/test/test_auto_zoom.py` and `frigate/test/http_api/test_http_media.py`
+- [X] T052 Run frontend Vitest, lint/build, and validate Auto Zoom i18n coverage in `web/src/views/live/LiveCameraView.test.tsx`, `web/src/views/settings/ObjectSettingsView.test.tsx`, and `web/public/locales/en/views/live.json`
+- [X] T053 Record quickstart validation outcomes in `specs/001-auto-zoom/quickstart.md`
 
 ---
 
