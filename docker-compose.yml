@@ -9,19 +9,22 @@ services:
       - "44"  # video
       - "46"  # plugdev
     shm_size: "256mb"
+    ports:
+      - "5173:5173"
+      - "5001:5001"
     build:
       context: .
       dockerfile: docker/main/Dockerfile
       # Use target devcontainer-trt for TensorRT dev
       target: devcontainer
     ## Uncomment this block for nvidia gpu support
-    # deploy:
-    #       resources:
-    #           reservations:
-    #               devices:
-    #                   - driver: nvidia
-    #                     count: 1
-    #                     capabilities: [gpu]
+    deploy:
+          resources:
+              reservations:
+                  devices:
+                      - driver: nvidia
+                        count: 1
+                        capabilities: [gpu]
     environment:
       YOLO_MODELS: ""
     # devices:

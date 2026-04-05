@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite --host 0.0.0.0",
     "postinstall": "patch-package",
     "build": "tsc && vite build --base=/BASE_PATH/",
     "lint": "eslint --ext .jsx,.js,.tsx,.ts --ignore-path .gitignore .",

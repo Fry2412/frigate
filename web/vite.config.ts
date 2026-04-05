@@ -5,6 +5,10 @@ import react from "@vitejs/plugin-react-swc";
 import monacoEditorPlugin from "vite-plugin-monaco-editor";
 
 const proxyHost = process.env.PROXY_HOST || "localhost:5000";
+const proxyUsesDirectFastApi = /(^|:)5001$/.test(proxyHost);
+const websocketProxyHost =
+  process.env.WS_PROXY_HOST ||
+  (proxyUsesDirectFastApi ? proxyHost.replace(/5001$/, "5002") : proxyHost);
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -16,6 +20,15 @@ export default defineConfig({
       "/api": {
         target: `http://${proxyHost}`,
         ws: true,
+        rewrite: proxyUsesDirectFastApi
+          ? (path) => path.replace(/^\/api/, "")
+          : undefined,
+        headers: proxyUsesDirectFastApi
+          ? {
+              "remote-user": "anonymous",
+              "remote-role": "admin",
+            }
+          : undefined,
       },
       "/vod": {
         target: `http://${proxyHost}`,
@@ -27,7 +40,7 @@ export default defineConfig({
         target: `http://${proxyHost}`,
       },
       "/ws": {
-        target: `ws://${proxyHost}`,
+        target: `ws://${websocketProxyHost}`,
         ws: true,
       },
       "/live": {
