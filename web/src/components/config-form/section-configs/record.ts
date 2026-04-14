@@ -46,6 +46,11 @@ const record: SectionConfigOverrides = {
   },
   camera: {
     restartRequired: [],
+    hiddenFields: [
+      "enabled_in_config",
+      "sync_recordings",
+      "export.max_concurrent",
+    ],
   },
 };
 
