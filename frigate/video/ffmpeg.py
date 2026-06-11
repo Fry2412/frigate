@@ -26,7 +26,8 @@ from frigate.config.camera.updater import (
 )
 from frigate.const import PROCESS_PRIORITY_HIGH
 from frigate.log import LogPipe
-from frigate.util.builtin import EventsPerSecond
+from frigate.util.builtin import EventsPerSecond, get_record_segment_time
+
 from frigate.util.ffmpeg import start_or_restart_ffmpeg, stop_ffmpeg
 from frigate.util.image import (
     FrameManager,
@@ -186,6 +187,13 @@ class CameraWatchdog(threading.Thread):
         self.latest_invalid_segment_time: float = 0
         self.latest_cache_segment_time: float = 0
         self.record_enable_time: datetime | None = None
+
+        # `valid` segments are published with the segment's start time, so the
+        # gap between consecutive publishes can reach 2 * segment_time. Pad the
+        # staleness threshold so it's never tighter than that worst case.
+        segment_time = get_record_segment_time(self.config)
+        self.record_stale_threshold = max(120, 2 * segment_time + 30)
+
 
         # Stall tracking (based on last processed frame)
         self._stall_timestamps: deque[float] = deque()
@@ -432,15 +440,15 @@ class CameraWatchdog(threading.Thread):
                     # ensure segments are still being created and that they have valid video data
                     # Skip checks during grace period to allow segments to start being created
                     cache_stale = not in_grace_period and now_utc > (
-                        latest_cache_dt + timedelta(seconds=120)
+                        latest_cache_dt + timedelta(seconds=self.record_stale_threshold)
                     )
                     valid_stale = not in_grace_period and now_utc > (
-                        latest_valid_dt + timedelta(seconds=120)
+                        latest_valid_dt + timedelta(seconds=self.record_stale_threshold)
                     )
                     invalid_stale_condition = (
                         self.latest_invalid_segment_time > 0
                         and not in_grace_period
-                        and now_utc > (latest_invalid_dt + timedelta(seconds=120))
+                        and now_utc > (latest_invalid_dt + timedelta(seconds=self.record_stale_threshold))
                         and self.latest_valid_segment_time
                         <= self.latest_invalid_segment_time
                     )

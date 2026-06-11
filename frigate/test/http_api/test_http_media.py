@@ -468,25 +468,6 @@ class TestHttpMedia(BaseTestHttp):
             assert summary["2024-03-10"] is True
 
 
-    def _assert_vod_response(
-        self,
-        response,
-        expected_clips: list[tuple[str, int | None, int]],
-    ) -> None:
-        """Assert VOD clip metadata and its derived duration fields."""
-        assert response.status_code == 200
-        vod = response.json()
-        assert [
-            (
-                clip["path"],
-                clip.get("clipFrom"),
-                clip["keyFrameDurations"][0],
-            )
-            for clip in vod["sequences"][0]["clips"]
-        ] == expected_clips
-        expected_durations = [clip[2] for clip in expected_clips]
-        assert vod["durations"] == expected_durations
-        assert vod["segment_duration"] == max(expected_durations)
 
 
 

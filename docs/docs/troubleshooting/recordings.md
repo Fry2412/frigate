@@ -80,3 +80,9 @@ Some users found that mounting a drive via `fstab` with the `sync` option caused
 #### Copy Times < 1 second
 
 If the storage is working quickly then this error may be caused by CPU load on the machine being too high for Frigate to have the resources to keep up. Try temporarily shutting down other services to see if the issue improves.
+
+:::tip
+
+Open **Camera Probe Info** on System / Metrics / Cameras and check **Keyframe analysis** to diagnose sparse or variable keyframes and long keyframe intervals.
+
+:::
