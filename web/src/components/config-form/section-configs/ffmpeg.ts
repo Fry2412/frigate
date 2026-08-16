@@ -19,6 +19,13 @@ const ffmpegArgsWidget = (
   },
 });
 
+const recordSubArgsWidget = () =>
+  ffmpegArgsWidget("output_args.record_sub", {
+    allowInherit: true,
+    forceSplitLayout: true,
+    unsetLabelKey: "configForm.ffmpegArgs.sameAsRecord",
+  });
+
 const ffmpeg: SectionConfigOverrides = {
   base: {
     sectionDocs: "/configuration/ffmpeg_presets",
@@ -30,6 +37,8 @@ const ffmpeg: SectionConfigOverrides = {
       output_args: "/configuration/ffmpeg_presets#output-args-presets",
       "inputs.output_args": "/configuration/ffmpeg_presets#output-args-presets",
       "output_args.record": "/configuration/ffmpeg_presets#output-args-presets",
+      "output_args.record_sub":
+        "/configuration/ffmpeg_presets#output-args-presets",
       "inputs.roles": "/configuration/cameras/#setting-up-camera-inputs",
     },
     restartRequired: [],
@@ -73,9 +82,11 @@ const ffmpeg: SectionConfigOverrides = {
       output_args: {
         detect: arrayAsTextWidget,
         record: ffmpegArgsWidget("output_args.record"),
+        record_sub: recordSubArgsWidget(),
         items: {
           detect: arrayAsTextWidget,
           record: ffmpegArgsWidget("output_args.record"),
+          record_sub: recordSubArgsWidget(),
         },
       },
       inputs: {
@@ -109,6 +120,7 @@ const ffmpeg: SectionConfigOverrides = {
             items: {
               detect: arrayAsTextWidget,
               record: ffmpegArgsWidget("output_args.record"),
+              record_sub: recordSubArgsWidget(),
             },
           },
         },
@@ -146,6 +158,7 @@ const ffmpeg: SectionConfigOverrides = {
       output_args: {
         detect: arrayAsTextWidget,
         record: ffmpegArgsWidget("output_args.record"),
+        record_sub: recordSubArgsWidget(),
       },
     },
   },

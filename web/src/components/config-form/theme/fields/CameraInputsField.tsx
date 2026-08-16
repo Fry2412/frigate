@@ -156,6 +156,25 @@ export function CameraInputsField(props: FieldProps) {
     }
   }, [fieldPathId.path, inputs, onChange]);
 
+  const getRolesUsedByOtherInputs = useCallback(
+    (index: number): string[] => {
+      const used = new Set<string>();
+      inputs.forEach((input, currentIndex) => {
+        if (currentIndex === index || !Array.isArray(input.roles)) {
+          return;
+        }
+
+        input.roles.forEach((role) => {
+          if (typeof role === "string") {
+            used.add(role);
+          }
+        });
+      });
+      return [...used];
+    },
+    [inputs],
+  );
+
   const handleFieldValueChange = useCallback(
     (index: number, fieldName: string, nextValue: unknown) => {
       const nextInputs = cloneDeep(inputs);
@@ -366,7 +385,16 @@ export function CameraInputsField(props: FieldProps) {
                     })}
                   </div>
 
-                  <div className="w-full">{renderField(index, "roles")}</div>
+                  <div className="w-full">
+                    {renderField(index, "roles", {
+                      extraUiSchema: {
+                        "ui:options": {
+                          rolesUsedByOtherInputs:
+                            getRolesUsedByOtherInputs(index),
+                        },
+                      },
+                    })}
+                  </div>
 
                   {renderField(index, "input_args")}
 

@@ -6,18 +6,6 @@ import os
 from typing import Any, Dict, Optional
 
 import numpy as np
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    TypeAdapter,
-    ValidationInfo,
-    field_validator,
-    model_validator,
-)
-from ruamel.yaml import YAML
-from typing_extensions import Self
-
 from frigate.const import REGEX_JSON
 from frigate.detectors import DetectorConfig, ModelConfig
 from frigate.detectors.detector_config import BaseDetectorConfig
@@ -37,6 +25,17 @@ from frigate.util.config import (
 )
 from frigate.util.image import create_mask
 from frigate.util.services import auto_detect_hwaccel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+from ruamel.yaml import YAML
+from typing_extensions import Self
 
 from .auth import AuthConfig
 from .base import FrigateBaseModel
@@ -232,6 +231,15 @@ def verify_config_roles(camera_config: CameraConfig) -> None:
             f"Camera {camera_config.name} has record enabled, but record is not assigned to an input."
         )
 
+    if (
+        camera_config.record.enabled
+        and camera_config.record.sub.enabled
+        and "record_sub" not in assigned_roles
+    ):
+        raise ValueError(
+            f"Camera {camera_config.name} has sub stream recording enabled, but record_sub is not assigned to an input."
+        )
+
     if camera_config.audio.enabled and "audio" not in assigned_roles:
         raise ValueError(
             f"Camera {camera_config.name} has audio events enabled, but audio is not assigned to an input."
@@ -252,13 +260,11 @@ def verify_valid_live_stream_names(
             )
 
 
-def verify_recording_segments_setup_with_reasonable_time(
-    camera_config: CameraConfig,
+def verify_record_output_args_segment_time(
+    camera_config: CameraConfig, output_args: str | list[str], role: str
 ) -> None:
-    """Verify that recording segments are setup and segment time is not greater than 60."""
-    record_args: list[str] = get_ffmpeg_arg_list(
-        camera_config.ffmpeg.output_args.record
-    )
+    """Verify that a recording role's output args segment at a reasonable time."""
+    record_args: list[str] = get_ffmpeg_arg_list(output_args)
 
     if record_args[0].startswith("preset"):
         return
@@ -268,13 +274,29 @@ def verify_recording_segments_setup_with_reasonable_time(
     except ValueError:
         raise ValueError(
             f"Camera {camera_config.name} has no segment_time in \
-                         recording output args, segment args are required for record."
-        )
+                         {role} output args, segment args are required for record."
+        ) from None
 
     if int(record_args[seg_arg_index + 1]) > 60:
         raise ValueError(
-            f"Camera {camera_config.name} has invalid segment_time output arg, \
+            f"Camera {camera_config.name} has invalid segment_time in {role} output args, \
                          segment_time must be 60 or less."
+        )
+
+
+def verify_recording_segments_setup_with_reasonable_time(
+    camera_config: CameraConfig,
+) -> None:
+    """Verify that recording segments are setup and segment time is not greater than 60."""
+    verify_record_output_args_segment_time(
+        camera_config, camera_config.ffmpeg.output_args.record, "recording"
+    )
+
+    if camera_config.record.sub.enabled:
+        verify_record_output_args_segment_time(
+            camera_config,
+            camera_config.ffmpeg.output_args.effective_record_sub,
+            "sub stream recording",
         )
 
 

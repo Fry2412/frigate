@@ -13,11 +13,6 @@ import requests
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from filelock import FileLock, Timeout
-from onvif import ONVIFCamera, ONVIFError
-from ruamel.yaml import YAML
-from zeep.exceptions import Fault, TransportError
-from zeep.transports import AsyncTransport
-
 from frigate.api.auth import (
     allow_any_authenticated,
     require_go2rtc_stream_access,
@@ -36,6 +31,10 @@ from frigate.util.camera_cleanup import cleanup_camera_db, cleanup_camera_files
 from frigate.util.config import find_config_file
 from frigate.util.image import run_ffmpeg_snapshot
 from frigate.util.services import analyze_record_keyframes, ffprobe_stream
+from onvif import ONVIFCamera, ONVIFError
+from ruamel.yaml import YAML
+from zeep.exceptions import Fault, TransportError
+from zeep.transports import AsyncTransport
 
 logger = logging.getLogger(__name__)
 

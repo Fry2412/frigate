@@ -5,7 +5,10 @@ import { TimeRange, TrackingDetailsSequence } from "@/types/timeline";
 import {
   calculateInpointOffset,
   calculateSeekPosition,
+  playWithTemporaryMuteFallback,
 } from "@/utils/videoUtil";
+
+const SEEK_PLAY_FALLBACK_MS = 1000;
 
 type PlayerMode = "playback" | "scrubbing";
 
@@ -23,7 +26,6 @@ export class DynamicVideoController {
   private timeRange: TimeRange = { after: 0, before: 0 };
   private inpointOffset: number = 0;
   private annotationOffset: number;
-  private timeToStart: number | undefined = undefined;
 
   constructor(
     camera: string,
@@ -50,11 +52,6 @@ export class DynamicVideoController {
       this.timeRange.after,
       this.recordings[0],
     );
-
-    if (this.timeToStart) {
-      this.seekToTimestamp(this.timeToStart);
-      this.timeToStart = undefined;
-    }
   }
 
   play() {
@@ -74,8 +71,11 @@ export class DynamicVideoController {
   }
 
   seekToTimestamp(time: number, play: boolean = false) {
+    // a seek outside the current playback window is a no-op: the view
+    // moves its anchor and chunk on such seeks, and the rebuilt source
+    // resumes at the anchor (startPosition plus the post-load seek).
+    // Seeking here would only reposition the outgoing source's media
     if (time < this.timeRange.after || time > this.timeRange.before) {
-      this.timeToStart = time;
       return;
     }
 
@@ -94,30 +94,47 @@ export class DynamicVideoController {
       return;
     }
 
-    if (seekSeconds != 0) {
-      this.playerController.currentTime = seekSeconds;
-
+    if (this.playerController.currentTime === seekSeconds) {
+      // seeking to the current position fires no seeked event, so apply
+      // the play intent directly (this includes position 0, which the
+      // player sits at before its first seek)
       if (play) {
-        this.waitAndPlay();
+        playWithTemporaryMuteFallback(this.playerController);
       } else {
         this.playerController.pause();
       }
+      return;
+    }
+
+    this.playerController.currentTime = seekSeconds;
+
+    if (play) {
+      this.waitAndPlay();
     } else {
-      // no op
+      this.playerController.pause();
     }
   }
 
   waitAndPlay() {
     return new Promise((resolve) => {
+      let fallback: NodeJS.Timeout | undefined;
+
       const onSeekedHandler = () => {
+        clearTimeout(fallback);
         this.playerController.removeEventListener("seeked", onSeekedHandler);
-        this.playerController.play();
+        playWithTemporaryMuteFallback(this.playerController);
         resolve(undefined);
       };
 
       this.playerController.addEventListener("seeked", onSeekedHandler, {
         once: true,
       });
+
+      // iOS ManagedMediaSource pauses hls.js buffering, so `seeked` may
+      // never fire; playing is what prompts WebKit to resume streaming
+      if ("ManagedMediaSource" in window) {
+        fallback = setTimeout(onSeekedHandler, SEEK_PLAY_FALLBACK_MS);
+      }
     });
   }
 
@@ -129,20 +146,26 @@ export class DynamicVideoController {
 
   getProgress(playerTime: number): number {
     // take a player time in seconds and convert to timestamp in timeline
-    let timestamp = 0;
+    const recordings = this.recordings || [];
     let totalTime = 0;
-    (this.recordings || []).every((segment) => {
+    for (const segment of recordings) {
       if (totalTime + segment.duration > playerTime) {
-        // segment is here
-        timestamp = segment.start_time + (playerTime - totalTime);
-        return false;
-      } else {
-        totalTime += segment.duration;
-        return true;
+        // playlist media from before the span's wall start (keyframe
+        // back-snap lead-in) clamps to the span start
+        const wallLength = segment.end_time - segment.start_time;
+        const leadIn = Math.max(0, segment.duration - wallLength);
+        return (
+          segment.start_time + Math.max(0, playerTime - totalTime - leadIn)
+        );
       }
-    });
+      totalTime += segment.duration;
+    }
 
-    return timestamp;
+    // past the modeled total: clamp to the covered end rather than
+    // reporting wall-clock zero
+    return recordings.length > 0
+      ? recordings[recordings.length - 1].end_time
+      : 0;
   }
 
   scrubToTimestamp(time: number, saveIfNotReady: boolean = false) {
@@ -156,7 +179,10 @@ export class DynamicVideoController {
       this.previewController.setNewPreviewStartTime(time);
     }
 
-    if (scrubResult && this.playerMode != "scrubbing") {
+    // pause even when no preview can render this range: a hidden player
+    // left running reports stale times once the drag releases, bouncing
+    // the handlebar back and sometimes swallowing the release seek
+    if (this.playerMode != "scrubbing") {
       this.playerMode = "scrubbing";
       this.playerController.pause();
     }

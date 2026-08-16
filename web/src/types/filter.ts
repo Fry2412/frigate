@@ -11,6 +11,21 @@ export type FilterList = {
 
 export const LAST_24_HOURS_KEY = "last24Hours";
 
+const DRAWER_FEATURES = [
+  "export",
+  "calendar",
+  "filter",
+  "debug-replay",
+  "quality",
+] as const;
+export type DrawerFeatures = (typeof DRAWER_FEATURES)[number];
+export const DEFAULT_DRAWER_FEATURES: DrawerFeatures[] = [
+  "export",
+  "calendar",
+  "filter",
+  "debug-replay",
+];
+
 export type GeneralFilter = {
   showAll?: boolean;
   labels?: string[];

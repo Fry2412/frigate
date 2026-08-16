@@ -2,9 +2,12 @@ import os
 from enum import Enum
 from typing import Optional
 
-from pydantic import Field, PrivateAttr, model_validator
-
-from frigate.const import CACHE_DIR, CACHE_SEGMENT_FORMAT, REGEX_CAMERA_NAME
+from frigate.const import (
+    CACHE_DIR,
+    CACHE_SEGMENT_FORMAT,
+    REGEX_CAMERA_NAME,
+    SUB_CACHE_TAG,
+)
 from frigate.ffmpeg_presets import (
     parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_scale,
@@ -16,6 +19,7 @@ from frigate.util.builtin import (
     generate_color_palette,
     get_ffmpeg_arg_list,
 )
+from pydantic import Field, PrivateAttr, model_validator
 
 from ..base import FrigateBaseModel
 from ..classification import (
@@ -292,6 +296,28 @@ class CameraConfig(FrigateBaseModel):
             ffmpeg_output_args = (
                 record_args
                 + [f"{os.path.join(CACHE_DIR, self.name)}@{CACHE_SEGMENT_FORMAT}.mp4"]
+                + ffmpeg_output_args
+            )
+
+        if (
+            "record_sub" in ffmpeg_input.roles
+            and self.record.enabled
+            and self.record.sub.enabled
+        ):
+            sub_output_args = self.ffmpeg.output_args.effective_record_sub
+            record_args = get_ffmpeg_arg_list(
+                parse_preset_output_record(
+                    sub_output_args,
+                    self.ffmpeg.apple_compatibility,
+                )
+                or sub_output_args
+            )
+
+            ffmpeg_output_args = (
+                record_args
+                + [
+                    f"{os.path.join(CACHE_DIR, self.name)}{SUB_CACHE_TAG}@{CACHE_SEGMENT_FORMAT}.mp4"
+                ]
                 + ffmpeg_output_args
             )
 

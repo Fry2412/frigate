@@ -30,6 +30,7 @@ type PresetField =
   | "hwaccel_args"
   | "input_args"
   | "output_args.record"
+  | "output_args.record_sub"
   | "output_args.detect";
 
 const getPresetOptions = (
@@ -49,7 +50,10 @@ const getPresetOptions = (
   }
 
   if (field.startsWith("output_args.")) {
-    const key = field.split(".")[1] as "record" | "detect";
+    const key =
+      field === "output_args.record_sub"
+        ? "record"
+        : (field.split(".")[1] as "record" | "detect");
     return data.output_args?.[key] ?? [];
   }
 
@@ -121,6 +125,7 @@ export function FfmpegArgsWidget(props: WidgetProps) {
   } = props;
   const presetField = options?.ffmpegPresetField as PresetField | undefined;
   const allowInherit = options?.allowInherit === true;
+  const unsetLabelKey = options?.unsetLabelKey as string | undefined;
   const hideDescription = options?.hideDescription === true;
   const useSplitLayout = options?.splitLayout !== false;
 
@@ -274,6 +279,12 @@ export function FfmpegArgsWidget(props: WidgetProps) {
         : "ffmpeg.output_args.record.description";
     }
 
+    if (presetField === "output_args.record_sub") {
+      return isInputScoped
+        ? "ffmpeg.inputs.output_args.record_sub.description"
+        : "ffmpeg.output_args.record_sub.description";
+    }
+
     if (presetField === "output_args.detect") {
       return isInputScoped
         ? "ffmpeg.inputs.output_args.detect.description"
@@ -332,7 +343,9 @@ export function FfmpegArgsWidget(props: WidgetProps) {
               }
             />
             <label htmlFor={`${id}-inherit`} className="cursor-pointer text-sm">
-              {t("configForm.ffmpegArgs.inherit", { ns: "views/settings" })}
+              {t(unsetLabelKey ?? "configForm.ffmpegArgs.inherit", {
+                ns: "views/settings",
+              })}
             </label>
           </div>
         ) : (
@@ -348,7 +361,9 @@ export function FfmpegArgsWidget(props: WidgetProps) {
               }
             />
             <label htmlFor={`${id}-none`} className="cursor-pointer text-sm">
-              {t("configForm.ffmpegArgs.none", { ns: "views/settings" })}
+              {t(unsetLabelKey ?? "configForm.ffmpegArgs.none", {
+                ns: "views/settings",
+              })}
             </label>
           </div>
         )}

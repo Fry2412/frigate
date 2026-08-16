@@ -10,9 +10,6 @@ import pandas as pd
 from fastapi import APIRouter, Request
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse
-from peewee import Case, DoesNotExist, IntegrityError, fn, operator
-from playhouse.shortcuts import model_to_dict
-
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
@@ -33,10 +30,13 @@ from frigate.api.defs.response.review_response import (
     ReviewSummaryResponse,
 )
 from frigate.api.defs.tags import Tags
+from frigate.const import STREAM_TYPE_MAIN
 from frigate.embeddings import EmbeddingsContext
 from frigate.models import Recordings, ReviewSegment, UserReviewStatus
 from frigate.review.types import SeverityEnum
 from frigate.util.time import get_dst_transitions
+from peewee import Case, DoesNotExist, IntegrityError, fn, operator
+from playhouse.shortcuts import model_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -597,7 +597,9 @@ def motion_activity(
     scale = params.scale
 
     clauses = [(Recordings.start_time > after) & (Recordings.end_time < before)]
-    clauses.append((Recordings.motion > 0))
+    clauses.append(Recordings.motion > 0)
+    # sub rows duplicate the camera's motion stats, so only count main rows
+    clauses.append(Recordings.stream_type == STREAM_TYPE_MAIN)
 
     if cameras != "all":
         requested = set(cameras.split(","))

@@ -9,7 +9,12 @@ import {
   DebugReplayContent,
   SaveDebugReplayOverlay,
 } from "./DebugReplayDialog";
-import { ExportMode, GeneralFilter } from "@/types/filter";
+import {
+  DEFAULT_DRAWER_FEATURES,
+  DrawerFeatures,
+  ExportMode,
+  GeneralFilter,
+} from "@/types/filter";
 import ReviewActivityCalendar from "./ReviewActivityCalendar";
 import { SelectSeparator } from "../ui/select";
 import {
@@ -27,6 +32,15 @@ import { isIOS, isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { StartExportResponse } from "@/types/export";
+import { useIsAdmin } from "@/hooks/use-is-admin";
+import { FaTriangleExclamation } from "react-icons/fa6";
+import { MdHighQuality } from "react-icons/md";
+import { QualitySelectorContent } from "../player/QualitySelector";
+import {
+  AutoQualityReason,
+  PlaybackQuality,
+  RecordingCoverage,
+} from "@/types/record";
 
 type DrawerMode =
   | "none"
@@ -34,21 +48,9 @@ type DrawerMode =
   | "export"
   | "calendar"
   | "filter"
-  | "debug-replay";
-
-const DRAWER_FEATURES = [
-  "export",
-  "calendar",
-  "filter",
-  "debug-replay",
-] as const;
-export type DrawerFeatures = (typeof DRAWER_FEATURES)[number];
-const DEFAULT_DRAWER_FEATURES: DrawerFeatures[] = [
-  "export",
-  "calendar",
-  "filter",
-  "debug-replay",
-];
+  | "debug-replay"
+  | "share-timestamp"
+  | "quality";
 
 type MobileReviewSettingsDrawerProps = {
   features?: DrawerFeatures[];
@@ -72,6 +74,12 @@ type MobileReviewSettingsDrawerProps = {
   setRange: (range: TimeRange | undefined) => void;
   setMode: (mode: ExportMode) => void;
   setShowExportPreview: (showPreview: boolean) => void;
+  quality?: PlaybackQuality;
+  onSetQuality?: (quality: PlaybackQuality) => void;
+  qualityStreams?: RecordingCoverage["streams"];
+  qualityAutoLow?: boolean;
+  qualityAutoLowReason?: AutoQualityReason;
+  qualityMainUnsupported?: boolean;
 };
 export default function MobileReviewSettingsDrawer({
   features = DEFAULT_DRAWER_FEATURES,
@@ -95,13 +103,23 @@ export default function MobileReviewSettingsDrawer({
   setRange,
   setMode,
   setShowExportPreview,
+  quality,
+  onSetQuality,
+  qualityStreams,
+  qualityAutoLow,
+  qualityAutoLowReason,
+  qualityMainUnsupported,
 }: MobileReviewSettingsDrawerProps) {
   const { t } = useTranslation([
     "views/recording",
     "components/dialog",
     "views/replay",
+    "views/events",
+    "components/player",
+    "common",
   ]);
   const navigate = useNavigate();
+  const isAdmin = useIsAdmin();
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("none");
   const [exportTab, setExportTab] = useState<ExportTab>("export");
   const [selectedReplayOption, setSelectedReplayOption] = useState<
@@ -349,7 +367,22 @@ export default function MobileReviewSettingsDrawer({
             {t("filter")}
           </Button>
         )}
-        {features.includes("debug-replay") && (
+        {features.includes("quality") && onSetQuality && (
+          <Button
+            className="flex w-full items-center justify-center gap-2"
+            aria-label={t("quality.label", { ns: "components/player" })}
+            onClick={() => setDrawerMode("quality")}
+          >
+            <div className="relative">
+              <MdHighQuality className="size-5 rounded-md bg-secondary-foreground fill-secondary p-1" />
+              {qualityAutoLow && (
+                <FaTriangleExclamation className="absolute -bottom-1 -right-1 size-2.5 text-danger" />
+              )}
+            </div>
+            {t("quality.label", { ns: "components/player" })}
+          </Button>
+        )}
+        {isAdmin && features.includes("debug-replay") && (
           <Button
             className="flex w-full items-center justify-center gap-2"
             aria-label={t("title", { ns: "views/replay" })}
@@ -534,6 +567,33 @@ export default function MobileReviewSettingsDrawer({
           }
         }}
       />
+    );
+  } else if (drawerMode == "quality") {
+    content = (
+      <div className="flex w-full flex-col">
+        <div className="relative mb-2 h-8 w-full">
+          <div
+            className="absolute left-0 text-selected"
+            onClick={() => setDrawerMode("select")}
+          >
+            {t("button.back", { ns: "common" })}
+          </div>
+          <div className="absolute left-1/2 -translate-x-1/2 text-muted-foreground">
+            {t("quality.label", { ns: "components/player" })}
+          </div>
+        </div>
+        <QualitySelectorContent
+          quality={quality ?? "auto"}
+          onSetQuality={(newQuality) => {
+            onSetQuality?.(newQuality);
+            setDrawerMode("none");
+          }}
+          streams={qualityStreams}
+          autoLow={qualityAutoLow}
+          autoLowReason={qualityAutoLowReason}
+          mainUnsupported={qualityMainUnsupported}
+        />
+      </div>
     );
   }
 

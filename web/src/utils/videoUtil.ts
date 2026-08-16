@@ -63,14 +63,26 @@ export function calculateSeekPosition(
       return undefined;
     }
 
+    const wallLength = segment.end_time - segment.start_time;
+    const leadIn = Math.max(0, segment.duration - wallLength);
     if (timestamp <= segment.end_time) {
-      seekSeconds += timestamp - segment.start_time;
-      seekSeconds -= inpointOffset;
+      seekSeconds += leadIn + timestamp - segment.start_time - inpointOffset;
       return seekSeconds >= 0 ? seekSeconds : undefined;
     }
-
-    seekSeconds += segment.end_time - segment.start_time;
+    seekSeconds += segment.duration;
   }
 
   return undefined;
+}
+
+export function playWithTemporaryMuteFallback(video: HTMLVideoElement) {
+  return video.play().catch((error: { name?: string }) => {
+    if (error.name === "NotAllowedError" && !video.muted) {
+      video.muted = true;
+
+      return video.play().catch(() => undefined);
+    }
+
+    throw error;
+  });
 }

@@ -8,6 +8,7 @@ import PreviewPlayer, {
 } from "@/components/player/PreviewPlayer";
 import { DynamicVideoController } from "@/components/player/dynamic/DynamicVideoController";
 import DynamicVideoPlayer from "@/components/player/dynamic/DynamicVideoPlayer";
+import QualitySelector from "@/components/player/QualitySelector";
 import MotionReviewTimeline from "@/components/timeline/MotionReviewTimeline";
 import DetailStream from "@/components/timeline/DetailStream";
 import ReviewTimeline from "@/components/timeline/ReviewTimeline";
@@ -18,8 +19,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useOverlayState } from "@/hooks/use-overlay-state";
+import { usePersistence } from "@/hooks/use-persistence";
 import { useResizeObserver } from "@/hooks/resize-observer";
-import { ExportMode } from "@/types/filter";
+import { DEFAULT_DRAWER_FEATURES, ExportMode } from "@/types/filter";
 import { FrigateConfig } from "@/types/frigateConfig";
 import { Preview } from "@/types/preview";
 import {
@@ -62,9 +64,13 @@ import { VideoResolutionType } from "@/types/live";
 import {
   ASPECT_VERTICAL_LAYOUT,
   ASPECT_WIDE_LAYOUT,
+  AutoQualityReason,
+  PlaybackQuality,
+  RecordingCoverage,
   RecordingSegment,
   RecordingStartingPoint,
 } from "@/types/record";
+import { isCodecFamilySupported } from "@/utils/codecSupport";
 import { cn } from "@/lib/utils";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 import { useTimezone } from "@/hooks/use-date-utils";
@@ -130,8 +136,7 @@ export function RecordingView({
     startCamera,
   ]);
   const isMulticam = multicamCameras.length > 1;
-  const [activeControlsCamera, setActiveControlsCamera] =
-    useState(startCamera);
+  const [activeControlsCamera, setActiveControlsCamera] = useState(startCamera);
 
   const { data: recordingsSummary } = useSWR<RecordingsSummary>([
     "recordings/summary",
@@ -141,12 +146,21 @@ export function RecordingView({
     },
   ]);
 
+  // feeds the quality selector's per-stream subtitles
+  const { data: coverage } = useSWR<RecordingCoverage>([
+    `${mainCamera}/recordings/coverage`,
+    {
+      before: timeRange.before,
+      after: timeRange.after,
+    },
+  ]);
+
   // controller state
 
   const mainControllerRef = useRef<DynamicVideoController | null>(null);
-  const multicamControllerRefs = useRef<
-    Record<string, DynamicVideoController>
-  >({});
+  const multicamControllerRefs = useRef<Record<string, DynamicVideoController>>(
+    {},
+  );
   const mainLayoutRef = useRef<HTMLDivElement | null>(null);
   const cameraLayoutRef = useRef<HTMLDivElement | null>(null);
   const previewRowRef = useRef<HTMLDivElement | null>(null);
@@ -364,16 +378,16 @@ export function RecordingView({
   }, []);
 
   const updateSelectedSegment = useCallback(
-    (currentTime: number, updateStartTime: boolean) => {
+    (currentTime: number) => {
       const index = chunkedTimeRange.findIndex(
         (seg) => seg.after <= currentTime && seg.before >= currentTime,
       );
 
       if (index != -1) {
-        if (updateStartTime) {
-          setPlaybackStart(currentTime);
-        }
-
+        setPlaybackStart(currentTime);
+        // the outgoing chunk's player runs until the new source replaces
+        // it, reporting old positions while the new chunk loads
+        mainControllerRef.current?.pause();
         setSelectedRangeIdx(index);
       }
     },
@@ -386,7 +400,10 @@ export function RecordingView({
         currentTime > currentTimeRange.before + 60 ||
         currentTime < currentTimeRange.after - 60
       ) {
-        updateSelectedSegment(currentTime, false);
+        // the player rebuilds its source against playbackStart, and a
+        // stale anchor resolves to no startPosition, dropping playback
+        // at the start of the hour instead of the drag target
+        updateSelectedSegment(currentTime);
         return;
       }
 
@@ -416,11 +433,12 @@ export function RecordingView({
       setCurrentTime(time);
 
       if (currentTimeRange.after <= time && currentTimeRange.before >= time) {
+        setPlaybackStart(time);
         Object.values(multicamControllerRefs.current).forEach((controller) =>
           controller.seekToTimestamp(time, play),
         );
       } else {
-        updateSelectedSegment(time, true);
+        updateSelectedSegment(time);
       }
     },
     [currentTimeRange, updateSelectedSegment],
@@ -440,13 +458,14 @@ export function RecordingView({
               shouldPlayback = mainControllerRef.current.isPlaying();
             }
 
+            setPlaybackStart(currentTime);
             Object.values(multicamControllerRefs.current).forEach(
               (controller) =>
                 controller.seekToTimestamp(currentTime, shouldPlayback),
             );
           }
         } else {
-          updateSelectedSegment(currentTime, true);
+          updateSelectedSegment(currentTime);
         }
       } else if (playerTime != currentTime && timelineType != "detail") {
         mainControllerRef.current?.play();
@@ -460,6 +479,58 @@ export function RecordingView({
     width: 0,
     height: 0,
   });
+
+  // playback quality
+
+  const [quality, setQuality] = usePersistence<PlaybackQuality>(
+    "recordingQuality",
+    "auto",
+  );
+
+  // lets the selector surface a downswitch instead of a mysterious drop
+  const [autoQualityLow, setAutoQualityLow] = useState<{
+    low: boolean;
+    reason?: AutoQualityReason;
+  }>({ low: false });
+
+  // the player re-notifies on every mount and quality reset, so keep the
+  // same state object when nothing changed
+  const onAutoQualityChange = useCallback(
+    (low: boolean, reason: AutoQualityReason | undefined) =>
+      setAutoQualityLow((prev) =>
+        prev.low === low && prev.reason === reason ? prev : { low, reason },
+      ),
+    [],
+  );
+
+  // shown on the Original pin so a doomed selection is labeled
+  const mainCodecUnsupported = useMemo(
+    () =>
+      coverage?.streams?.main
+        ? !isCodecFamilySupported(coverage.streams.main.video_codec)
+        : false,
+    [coverage],
+  );
+
+  // the pin is persisted globally, but the selector is hidden on cameras
+  // without a sub stream, leaving an inherited "sub" pin unable to unpin
+  const playerQuality = useMemo<PlaybackQuality | undefined>(
+    () =>
+      config && !config.cameras[mainCamera]?.record.sub.enabled
+        ? "auto"
+        : quality,
+    [config, mainCamera, quality],
+  );
+
+  // a quality change swaps the playlist source, so anchor playback start
+  // the same way camera switching does to resume in place
+  const onSetQuality = useCallback(
+    (newQuality: PlaybackQuality) => {
+      setPlaybackStart(currentTime);
+      setQuality(newQuality);
+    },
+    [currentTime, setQuality],
+  );
 
   const onSelectCamera = useCallback(
     (newCam: string) => {
@@ -789,7 +860,7 @@ export function RecordingView({
                 aria-label={t("multicam.selectCameras", {
                   defaultValue: "Select cameras for multi-camera playback",
                 })}
-                className="max-w-[min(52vw,32rem)] overflow-x-auto scrollbar-container"
+                className="scrollbar-container max-w-[min(52vw,32rem)] overflow-x-auto"
               >
                 {effectiveCameras
                   .filter((camera) => camera !== "birdseye")
@@ -896,6 +967,18 @@ export function RecordingView({
                 }}
               />
             )}
+            {!isMobileOnly &&
+              config?.cameras[mainCamera]?.record.enabled &&
+              config?.cameras[mainCamera]?.record.sub.enabled && (
+                <QualitySelector
+                  quality={quality ?? "auto"}
+                  onSetQuality={onSetQuality}
+                  streams={coverage?.streams}
+                  autoLow={(quality ?? "auto") === "auto" && autoQualityLow.low}
+                  autoLowReason={autoQualityLow.reason}
+                  mainUnsupported={mainCodecUnsupported}
+                />
+              )}
             {isDesktop ? (
               <ToggleGroup
                 className="*:rounded-md *:px-3 *:py-4"
@@ -935,6 +1018,23 @@ export function RecordingView({
               />
             )}
             <MobileReviewSettingsDrawer
+              // tablets keep the header selector, so only phones get
+              // quality in the drawer
+              features={
+                isMobileOnly &&
+                config?.cameras[mainCamera]?.record.enabled &&
+                config?.cameras[mainCamera]?.record.sub.enabled
+                  ? [...DEFAULT_DRAWER_FEATURES, "quality"]
+                  : DEFAULT_DRAWER_FEATURES
+              }
+              quality={quality ?? "auto"}
+              onSetQuality={onSetQuality}
+              qualityStreams={coverage?.streams}
+              qualityAutoLow={
+                (quality ?? "auto") === "auto" && autoQualityLow.low
+              }
+              qualityAutoLowReason={autoQualityLow.reason}
+              qualityMainUnsupported={mainCodecUnsupported}
               camera={mainCamera}
               filter={filter}
               currentTime={currentTime}
@@ -1019,7 +1119,7 @@ export function RecordingView({
               isDesktop
                 ? "min-w-0 px-4"
                 : isMulticam
-                  ? "portrait:min-h-0 portrait:basis-[64%] portrait:flex-grow-0 landscape:flex-1"
+                  ? "portrait:min-h-0 portrait:flex-grow-0 portrait:basis-[64%] landscape:flex-1"
                   : "portrait:max-h-[50dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto",
             )}
           >
@@ -1056,53 +1156,55 @@ export function RecordingView({
                     aspectRatio: getCameraAspect(mainCamera),
                   }}
                 >
-                {(isDesktop || isTablet) && (
-                  <GenAISummaryDialog
-                    review={activeReviewItem}
-                    onOpen={onAnalysisOpen}
-                  >
-                    <GenAISummaryChip review={activeReviewItem} />
-                  </GenAISummaryDialog>
-                )}
+                  {(isDesktop || isTablet) && (
+                    <GenAISummaryDialog
+                      review={activeReviewItem}
+                      onOpen={onAnalysisOpen}
+                    >
+                      <GenAISummaryChip review={activeReviewItem} />
+                    </GenAISummaryDialog>
+                  )}
 
-                <DynamicVideoPlayer
-                  className={grow}
-                  camera={mainCamera}
-                  timeRange={currentTimeRange}
-                  cameraPreviews={allPreviews ?? []}
-                  startTimestamp={playbackStart}
-                  scrubTimestamp={currentTime}
-                  shouldPlay={isPlaybackPlaying}
-                  hotKeys={
-                    exportMode != "select" && debugReplayMode != "select"
-                  }
-                  fullscreen={fullscreen}
-                  onTimestampUpdate={(timestamp, playbackTime) =>
-                    handleMasterTimestampUpdate(
-                      mainCamera,
-                      timestamp,
-                      playbackTime,
-                    )
-                  }
-                  onPlaybackStateChange={handlePlaybackStateChange}
-                  onPlaybackRateChange={handlePlaybackRateChange}
-                  onClipEnded={onClipEnded}
-                  onSeekToTime={manuallySetCurrentTime}
-                  onControllerReady={(controller) => {
-                    mainControllerRef.current = controller;
-                    multicamControllerRefs.current[mainCamera] = controller;
-                  }}
-                  isScrubbing={
-                    scrubbing ||
-                    exportMode == "timeline" ||
-                    exportMode == "timeline_multi" ||
-                    debugReplayMode == "timeline"
-                  }
-                  supportsFullscreen={supportsFullScreen}
-                  setFullResolution={setFullResolution}
-                  toggleFullscreen={toggleFullscreen}
-                  containerRef={mainLayoutRef}
-                />
+                  <DynamicVideoPlayer
+                    className={grow}
+                    camera={mainCamera}
+                    timeRange={currentTimeRange}
+                    cameraPreviews={allPreviews ?? []}
+                    startTimestamp={playbackStart}
+                    scrubTimestamp={currentTime}
+                    shouldPlay={isPlaybackPlaying}
+                    hotKeys={
+                      exportMode != "select" && debugReplayMode != "select"
+                    }
+                    fullscreen={fullscreen}
+                    onTimestampUpdate={(timestamp, playbackTime) =>
+                      handleMasterTimestampUpdate(
+                        mainCamera,
+                        timestamp,
+                        playbackTime,
+                      )
+                    }
+                    onPlaybackStateChange={handlePlaybackStateChange}
+                    onPlaybackRateChange={handlePlaybackRateChange}
+                    onClipEnded={onClipEnded}
+                    onSeekToTime={manuallySetCurrentTime}
+                    onControllerReady={(controller) => {
+                      mainControllerRef.current = controller;
+                      multicamControllerRefs.current[mainCamera] = controller;
+                    }}
+                    isScrubbing={
+                      scrubbing ||
+                      exportMode == "timeline" ||
+                      exportMode == "timeline_multi" ||
+                      debugReplayMode == "timeline"
+                    }
+                    supportsFullscreen={supportsFullScreen}
+                    setFullResolution={setFullResolution}
+                    toggleFullscreen={toggleFullscreen}
+                    containerRef={mainLayoutRef}
+                    quality={playerQuality}
+                    onAutoQualityChange={onAutoQualityChange}
+                  />
                 </div>
               )}
               {isMulticam && (
@@ -1122,9 +1224,7 @@ export function RecordingView({
                           : "border-white/10",
                         multicamCameras.length === 3 &&
                           index === 0 &&
-                          (isDesktop
-                            ? "row-span-2"
-                            : "portrait:col-span-2"),
+                          (isDesktop ? "row-span-2" : "portrait:col-span-2"),
                       )}
                     >
                       <button
@@ -1425,6 +1525,20 @@ function Timeline({
       : null,
   );
 
+  const { data: coverage } = useSWR<RecordingCoverage>([
+    `${mainCamera}/recordings/coverage`,
+    {
+      before: alignedBefore,
+      after: alignedAfter,
+    },
+  ]);
+
+  const subOnlyRanges = useMemo(
+    () =>
+      coverage?.spans?.filter((span) => !span.streams.includes("main")) ?? [],
+    [coverage],
+  );
+
   const [exportStart, setExportStartTime] = useState<number>(0);
   const [exportEnd, setExportEndTime] = useState<number>(0);
 
@@ -1459,7 +1573,7 @@ function Timeline({
           : cn(
               timelineType == "timeline"
                 ? isMulticamTimeline
-                  ? "portrait:min-h-[12rem] portrait:flex-1 landscape:min-w-[120px] landscape:w-[min(30vw,180px)] landscape:flex-shrink-0"
+                  ? "portrait:min-h-[12rem] portrait:flex-1 landscape:w-[min(30vw,180px)] landscape:min-w-[120px] landscape:flex-shrink-0"
                   : "portrait:flex-grow landscape:w-[100px] landscape:flex-shrink-0"
                 : timelineType == "detail"
                   ? "portrait:flex-grow landscape:w-[19rem] landscape:flex-shrink-0"
@@ -1526,6 +1640,7 @@ function Timeline({
             events={mainCameraReviewItems}
             motion_events={motionData ?? []}
             noRecordingRanges={noRecordings ?? []}
+            subOnlyRanges={subOnlyRanges}
             contentRef={contentRef}
             onHandlebarDraggingChange={(scrubbing) => setScrubbing(scrubbing)}
             isZooming={isZooming}
@@ -1757,9 +1872,7 @@ function MultiCameraMotionTimeline({
             <span
               className={cn(
                 "size-1.5 flex-shrink-0 rounded-full",
-                camera === mainCamera
-                  ? "bg-white"
-                  : "bg-muted-foreground/60",
+                camera === mainCamera ? "bg-white" : "bg-muted-foreground/60",
               )}
             />
             <span className="truncate">
@@ -1823,6 +1936,21 @@ function MultiCameraMotionTimelineLane({
     },
   ]);
 
+  const { data: cameraCoverage } = useSWR<RecordingCoverage>([
+    `${camera}/recordings/coverage`,
+    { before: alignedBefore, after: alignedAfter },
+  ]);
+  const getIsSubOnly = useCallback(
+    (time: number) =>
+      cameraCoverage?.spans?.some(
+        (span) =>
+          time >= span.start_time &&
+          time < span.end_time &&
+          !span.streams.includes("main"),
+      ) ?? false,
+    [cameraCoverage],
+  );
+
   const cameraReviewItems = useMemo(
     () => reviewItems.filter((review) => review.camera === camera),
     [camera, reviewItems],
@@ -1861,6 +1989,7 @@ function MultiCameraMotionTimelineLane({
         motionOnly={false}
         getMotionSegmentValue={getMotionSegmentValue}
         getRecordingAvailability={getRecordingAvailability}
+        getIsSubOnly={getIsSubOnly}
         alwaysShowMotionLine={false}
         showTimestamps={index === 0}
       />

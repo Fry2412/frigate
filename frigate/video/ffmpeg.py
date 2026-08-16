@@ -27,7 +27,6 @@ from frigate.config.camera.updater import (
 from frigate.const import PROCESS_PRIORITY_HIGH
 from frigate.log import LogPipe
 from frigate.util.builtin import EventsPerSecond, get_record_segment_time
-
 from frigate.util.ffmpeg import start_or_restart_ffmpeg, stop_ffmpeg
 from frigate.util.image import (
     FrameManager,
@@ -181,6 +180,8 @@ class CameraWatchdog(threading.Thread):
         )
         self.requestor = InterProcessRequestor()
         self.was_enabled = self.config.enabled
+        self.was_record_enabled_in_config = self.config.record.enabled_in_config
+        self.was_record_sub_enabled = self.config.record.sub.enabled
 
         self.segment_subscriber = RecordingsDataSubscriber(RecordingsDataTypeEnum.all)
         self.latest_valid_segment_time: float = 0
@@ -193,7 +194,6 @@ class CameraWatchdog(threading.Thread):
         # staleness threshold so it's never tighter than that worst case.
         segment_time = get_record_segment_time(self.config)
         self.record_stale_threshold = max(120, 2 * segment_time + 30)
-
 
         # Stall tracking (based on last processed frame)
         self._stall_timestamps: deque[float] = deque()
@@ -326,6 +326,40 @@ class CameraWatchdog(threading.Thread):
                 self.was_enabled = enabled
                 continue
 
+            record_enabled_in_config = self.config.record.enabled_in_config
+            if record_enabled_in_config != self.was_record_enabled_in_config:
+                if record_enabled_in_config and enabled:
+                    self.logger.debug(
+                        f"Record enabled in config for {self.config.name}, restarting ffmpeg"
+                    )
+                    self.stop_all_ffmpeg()
+                    self.start_all_ffmpeg()
+                    self.latest_valid_segment_time = 0
+                    self.latest_invalid_segment_time = 0
+                    self.latest_cache_segment_time = 0
+                    self.record_enable_time = datetime.now().astimezone(timezone.utc)
+                    last_restart_time = datetime.now().timestamp()
+                self.was_record_enabled_in_config = record_enabled_in_config
+                continue
+
+            record_sub_enabled = self.config.record.sub.enabled
+            if record_sub_enabled != self.was_record_sub_enabled:
+                # adding and removing the record_sub output both require a
+                # restart, unlike the main record toggle
+                if record_enabled_in_config and enabled:
+                    self.logger.debug(
+                        f"Sub stream recording toggled in config for {self.config.name}, restarting ffmpeg"
+                    )
+                    self.stop_all_ffmpeg()
+                    self.start_all_ffmpeg()
+                    self.latest_valid_segment_time = 0
+                    self.latest_invalid_segment_time = 0
+                    self.latest_cache_segment_time = 0
+                    self.record_enable_time = datetime.now().astimezone(timezone.utc)
+                    last_restart_time = datetime.now().timestamp()
+                self.was_record_sub_enabled = record_sub_enabled
+                continue
+
             if not enabled:
                 continue
 
@@ -448,7 +482,11 @@ class CameraWatchdog(threading.Thread):
                     invalid_stale_condition = (
                         self.latest_invalid_segment_time > 0
                         and not in_grace_period
-                        and now_utc > (latest_invalid_dt + timedelta(seconds=self.record_stale_threshold))
+                        and now_utc
+                        > (
+                            latest_invalid_dt
+                            + timedelta(seconds=self.record_stale_threshold)
+                        )
                         and self.latest_valid_segment_time
                         <= self.latest_invalid_segment_time
                     )

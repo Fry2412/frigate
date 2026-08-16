@@ -376,6 +376,7 @@
         "title": "Stream Roles",
         "detect": "Main feed for object detection.",
         "record": "Saves segments of the video feed based on configuration settings.",
+        "record_sub": "Lower quality recordings for adaptive playback and extended retention (typically the camera sub stream).",
         "audio": "Feed for audio based detection."
       },
       "featuresPopover": {
@@ -1341,6 +1342,7 @@
       "manual": "Manual arguments",
       "inherit": "Inherit from camera setting",
       "none": "None",
+      "sameAsRecord": "Same as record output arguments",
       "useGlobalSetting": "Inherit from global setting",
       "selectPreset": "Select preset",
       "manualPlaceholder": "Enter FFmpeg arguments",
@@ -1451,9 +1453,12 @@
     "inputRoles": {
       "summary": "{{count}} roles selected",
       "empty": "No roles available",
+      "roleInUse": "Already assigned to another stream",
+      "recordSubConflict": "A stream cannot have both record and record_sub roles",
       "options": {
         "detect": "Detect",
         "record": "Record",
+        "record_sub": "Record (Sub Stream)",
         "audio": "Audio"
       }
     },
@@ -1641,7 +1646,8 @@
       "vehicleNotTracked": "License plate recognition requires 'car' or 'motorcycle' to be tracked."
     },
     "record": {
-      "noRecordRole": "No streams have the record role defined. Recording will not function."
+      "noRecordRole": "No streams have the record role defined. Recording will not function.",
+      "noRecordSubRole": "No streams have the record_sub role defined. Sub stream recording will not function."
     },
     "birdseye": {
       "objectsModeDetectDisabled": "Birdseye is set to 'objects' mode, but object detection is disabled for this camera. The camera will not appear in Birdseye."

@@ -1,6 +1,7 @@
 """Utilities for services."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -18,7 +19,6 @@ import cv2
 import psutil
 import py3nvml.py3nvml as nvml
 import requests
-
 from frigate.const import (
     DRIVER_AMD,
     DRIVER_ENV_VAR,
@@ -932,10 +932,29 @@ async def get_video_properties(
 ) -> dict[str, Any]:
     async def probe_with_ffprobe(
         url: str,
-    ) -> tuple[bool, int, int, Optional[str], float]:
-        """Fallback using ffprobe: returns (valid, width, height, codec, duration)."""
-        cmd = [
-            ffmpeg.ffprobe_path,
+        rtsp_transport: str | None = None,
+    ) -> tuple[
+        bool,
+        int,
+        int,
+        str | None,
+        str | None,
+        float,
+        bool | None,
+        int | None,
+        str | None,
+    ]:
+        """Probe using ffprobe: returns (valid, width, height, fourcc, video_codec, duration, has_audio, audio_rate, audio_codec).
+
+        ffprobe reports the codec name directly, so fourcc and
+        video_codec are the same value on this path.
+        """
+        cmd = [ffmpeg.ffprobe_path]
+        if rtsp_transport:
+            cmd += ["-rtsp_transport", rtsp_transport]
+        cmd += [
+            "-rw_timeout",
+            "5000000",
             "-v",
             "quiet",
             "-print_format",
@@ -944,20 +963,30 @@ async def get_video_properties(
             "-show_streams",
             url,
         ]
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            except TimeoutError:
+                logger.info(
+                    "ffprobe timed out while probing %s (transport=%s)",
+                    clean_camera_user_pass(url),
+                    rtsp_transport or "default",
+                )
+                return False, 0, 0, None, None, -1, None, None, None
+
             if proc.returncode != 0:
-                return False, 0, 0, None, -1
+                return False, 0, 0, None, None, -1, None, None, None
 
             data = json.loads(stdout.decode())
             video_streams = [
                 s for s in data.get("streams", []) if s.get("codec_type") == "video"
             ]
             if not video_streams:
-                return False, 0, 0, None, -1
+                return False, 0, 0, None, None, -1, None, None, None
 
             v = video_streams[0]
             width = int(v.get("width", 0))
@@ -967,16 +996,70 @@ async def get_video_properties(
             duration_str = data.get("format", {}).get("duration")
             duration = float(duration_str) if duration_str else -1.0
 
-            return True, width, height, codec, duration
-        except (json.JSONDecodeError, ValueError, KeyError, sp.SubprocessError):
-            return False, 0, 0, None, -1
+            audio_streams = [
+                s for s in data.get("streams", []) if s.get("codec_type") == "audio"
+            ]
+            has_audio = bool(audio_streams)
 
-    def probe_with_cv2(url: str) -> tuple[bool, int, int, Optional[str], float]:
-        """Primary attempt using cv2: returns (valid, width, height, fourcc, duration)."""
+            # codec and sample rate distinguish audio tracks whose decoder
+            # configs cannot share an HLS sequence
+            audio_rate: int | None = None
+            audio_codec: str | None = None
+            if audio_streams:
+                try:
+                    audio_rate = int(audio_streams[0]["sample_rate"])
+                except (KeyError, TypeError, ValueError):
+                    audio_rate = None
+                audio_codec = audio_streams[0].get("codec_name")
+
+            return (
+                True,
+                width,
+                height,
+                codec,
+                codec,
+                duration,
+                has_audio,
+                audio_rate,
+                audio_codec,
+            )
+        except (json.JSONDecodeError, ValueError, KeyError, sp.SubprocessError):
+            return False, 0, 0, None, None, -1, None, None, None
+        finally:
+            # callers run in a per-cycle event loop, and an ffprobe still
+            # running when that loop closes is finalized against a dead loop
+            # ("Event loop is closed"). Draining after the kill is what
+            # closes the pipes and their transports
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(proc.communicate(), timeout=2)
+
+    def probe_with_cv2(
+        url: str,
+    ) -> tuple[
+        bool,
+        int,
+        int,
+        str | None,
+        str | None,
+        float,
+        bool | None,
+        int | None,
+        str | None,
+    ]:
+        """Probe using cv2: returns (valid, width, height, fourcc, video_codec, duration, has_audio, audio_rate, audio_codec).
+
+        cv2 cannot report audio streams or a normalized codec name, so
+        has_audio, audio_rate, audio_codec, and video_codec are always
+        None (unknown) on this path.
+        """
         cap = cv2.VideoCapture(url)
         if not cap.isOpened():
             cap.release()
-            return False, 0, 0, None, -1
+            return False, 0, 0, None, None, -1, None, None, None
 
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -995,18 +1078,107 @@ async def get_video_properties(
                     duration = total_frames / fps
 
         cap.release()
-        return valid, width, height, fourcc, duration
+        return valid, width, height, fourcc, None, duration, None, None, None
 
-    # try cv2 first
-    has_video, width, height, fourcc, duration = probe_with_cv2(url)
+    is_rtsp = url.startswith("rtsp://")
 
-    # fallback to ffprobe if needed
-    if not has_video or (get_duration and duration < 0):
-        has_video, width, height, fourcc, duration = await probe_with_ffprobe(url)
+    if is_rtsp:
+        # skip cv2 for RTSP: its FFmpeg backend has a hardcoded ~30s internal
+        # timeout that cannot be shortened per-call, and ffprobe bounded by
+        # -rw_timeout handles RTSP probing reliably
+        (
+            has_video,
+            width,
+            height,
+            fourcc,
+            video_codec,
+            duration,
+            has_audio,
+            audio_rate,
+            audio_codec,
+        ) = await probe_with_ffprobe(url)
+    elif get_duration:
+        # ffprobe first: segment validation also needs audio presence,
+        # which cv2 cannot report
+        (
+            has_video,
+            width,
+            height,
+            fourcc,
+            video_codec,
+            duration,
+            has_audio,
+            audio_rate,
+            audio_codec,
+        ) = await probe_with_ffprobe(url)
+
+        # fallback to cv2 if needed; audio stays unknown there
+        if not has_video or duration < 0:
+            (
+                has_video,
+                width,
+                height,
+                fourcc,
+                video_codec,
+                duration,
+                has_audio,
+                audio_rate,
+                audio_codec,
+            ) = probe_with_cv2(url)
+    else:
+        # try cv2 first for local files, HTTP, RTMP
+        (
+            has_video,
+            width,
+            height,
+            fourcc,
+            video_codec,
+            duration,
+            has_audio,
+            audio_rate,
+            audio_codec,
+        ) = probe_with_cv2(url)
+
+        # fallback to ffprobe if needed
+        if not has_video:
+            (
+                has_video,
+                width,
+                height,
+                fourcc,
+                video_codec,
+                duration,
+                has_audio,
+                audio_rate,
+                audio_codec,
+            ) = await probe_with_ffprobe(url)
+
+    # last resort for RTSP: try TCP transport, since default UDP may be blocked
+    if (not has_video or (get_duration and duration < 0)) and is_rtsp:
+        (
+            has_video,
+            width,
+            height,
+            fourcc,
+            video_codec,
+            duration,
+            has_audio,
+            audio_rate,
+            audio_codec,
+        ) = await probe_with_ffprobe(url, rtsp_transport="tcp")
 
     result: dict[str, Any] = {"has_valid_video": has_video}
     if has_video:
-        result.update({"width": width, "height": height})
+        result.update(
+            {
+                "width": width,
+                "height": height,
+                "has_audio": has_audio,
+                "audio_rate": audio_rate,
+                "audio_codec": audio_codec,
+                "video_codec": video_codec,
+            }
+        )
         if fourcc:
             result["fourcc"] = fourcc
     if get_duration:
