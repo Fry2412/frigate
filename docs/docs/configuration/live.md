@@ -388,3 +388,7 @@ When your browser runs into problems playing back your camera streams, it will l
              roles:
                - detect
    ```
+
+## Backing up browser streaming settings
+
+Settings > UI Settings > Backup & Restore can export camera-group layouts and per-camera streaming preferences to JSON and import them on another device. These settings are stored per browser and user; import previews the affected sections before applying them.
