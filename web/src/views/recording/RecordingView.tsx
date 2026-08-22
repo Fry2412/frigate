@@ -342,7 +342,7 @@ export function RecordingView({
       );
 
       Object.values(previewRefs.current).forEach((controller) => {
-        controller.scrubToTimestamp(currentTime, true);
+        controller.scrubToTimestamp(currentTime);
       });
     }
     // we only want to seek when current time updates
