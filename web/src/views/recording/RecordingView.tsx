@@ -119,6 +119,10 @@ export function RecordingView({
     [allCameras, allowedCameras],
   );
   const [mainCamera, setMainCamera] = useState(startCamera);
+  const [multicamCameras, setMulticamCameras] = useState<string[]>([
+    startCamera,
+  ]);
+  const isMulticam = multicamCameras.length > 1;
 
   const { data: recordingsSummary } = useSWR<RecordingsSummary>([
     "recordings/summary",
@@ -131,6 +135,9 @@ export function RecordingView({
   // controller state
 
   const mainControllerRef = useRef<DynamicVideoController | null>(null);
+  const multicamControllerRefs = useRef<
+    Record<string, DynamicVideoController>
+  >({});
   const mainLayoutRef = useRef<HTMLDivElement | null>(null);
   const cameraLayoutRef = useRef<HTMLDivElement | null>(null);
   const previewRowRef = useRef<HTMLDivElement | null>(null);
@@ -285,7 +292,9 @@ export function RecordingView({
         return;
       }
 
-      mainControllerRef.current?.scrubToTimestamp(currentTime);
+      Object.values(multicamControllerRefs.current).forEach((controller) =>
+        controller.scrubToTimestamp(currentTime),
+      );
 
       Object.values(previewRefs.current).forEach((controller) => {
         controller.scrubToTimestamp(currentTime);
@@ -309,7 +318,9 @@ export function RecordingView({
       setCurrentTime(time);
 
       if (currentTimeRange.after <= time && currentTimeRange.before >= time) {
-        mainControllerRef.current?.seekToTimestamp(time, play);
+        Object.values(multicamControllerRefs.current).forEach((controller) =>
+          controller.seekToTimestamp(time, play),
+        );
       } else {
         updateSelectedSegment(time, true);
       }
@@ -331,9 +342,9 @@ export function RecordingView({
               shouldPlayback = mainControllerRef.current.isPlaying();
             }
 
-            mainControllerRef.current.seekToTimestamp(
-              currentTime,
-              shouldPlayback,
+            Object.values(multicamControllerRefs.current).forEach(
+              (controller) =>
+                controller.seekToTimestamp(currentTime, shouldPlayback),
             );
           }
         } else {
@@ -356,6 +367,7 @@ export function RecordingView({
     (newCam: string) => {
       if (allowedCameras.includes(newCam)) {
         setMainCamera(newCam);
+        setMulticamCameras([newCam]);
         setFullResolution({
           width: 0,
           height: 0,
@@ -365,6 +377,24 @@ export function RecordingView({
     },
     [currentTime, allowedCameras],
   );
+
+  const ignoreFullResolution = useCallback(
+    (_resolution: React.SetStateAction<VideoResolutionType>) => undefined,
+    [],
+  );
+
+  useEffect(() => {
+    mainControllerRef.current =
+      multicamControllerRefs.current[mainCamera] ?? null;
+  }, [mainCamera, multicamCameras]);
+
+  useEffect(() => {
+    Object.keys(multicamControllerRefs.current).forEach((camera) => {
+      if (!multicamCameras.includes(camera)) {
+        delete multicamControllerRefs.current[camera];
+      }
+    });
+  }, [multicamCameras]);
 
   // fullscreen
 
@@ -598,6 +628,39 @@ export function RecordingView({
               selected={mainCamera}
               onSelectCamera={onSelectCamera}
             />
+            {effectiveCameras.length > 1 && (
+              <ToggleGroup
+                type="multiple"
+                value={multicamCameras}
+                onValueChange={(value) => {
+                  const next = value.filter((camera) => camera !== "birdseye");
+                  if (next.length === 0) return;
+                  setMulticamCameras(next);
+                  if (!next.includes(mainCamera)) setMainCamera(next[0]);
+                }}
+                aria-label={t("multicam.selectCameras", {
+                  defaultValue: "Select cameras for multi-camera playback",
+                })}
+                className="max-w-[min(52vw,32rem)] overflow-x-auto scrollbar-container"
+              >
+                {effectiveCameras
+                  .filter((camera) => camera !== "birdseye")
+                  .map((camera) => (
+                    <ToggleGroupItem
+                      key={camera}
+                      value={camera}
+                      size="sm"
+                      className="max-w-40 truncate rounded-md px-2 py-1 text-xs"
+                      aria-label={t("multicam.toggleCamera", {
+                        defaultValue: "Toggle camera {{camera}}",
+                        camera,
+                      })}
+                    >
+                      <CameraNameLabel camera={camera} />
+                    </ToggleGroupItem>
+                  ))}
+              </ToggleGroup>
+            )}
             {isDesktop && (
               <DebugReplayDialog
                 camera={mainCamera}
@@ -763,42 +826,47 @@ export function RecordingView({
             ref={cameraLayoutRef}
             className={cn(
               "flex flex-1 flex-wrap overflow-hidden",
+              isMulticam && "min-h-0 min-w-0 p-1",
               isDesktop
                 ? "min-w-0 px-4"
-                : "portrait:max-h-[50dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto",
+                : isMulticam
+                  ? "portrait:min-h-0 portrait:basis-auto"
+                  : "portrait:max-h-[50dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto",
             )}
           >
             <div
               className={cn(
                 "flex size-full items-center",
+                isMulticam && "min-h-0 min-w-0",
                 mainCameraAspect == "tall"
                   ? "flex-row justify-evenly"
                   : "flex-col justify-center gap-2",
               )}
             >
-              <div
-                key={mainCamera}
-                className={cn(
-                  "relative flex max-h-full min-h-0 min-w-0 max-w-full items-center justify-center",
-                  isDesktop
-                    ? // Desktop: dynamically switch between w-full and h-full based on
-                      // container vs camera aspect ratio to ensure proper fitting
-                      useHeightBased
-                      ? "h-full"
-                      : "w-full"
-                    : cn(
-                        "flex-shrink-0 portrait:w-full landscape:h-full",
-                        mainCameraAspect == "wide"
-                          ? "aspect-wide"
-                          : mainCameraAspect == "tall"
-                            ? "aspect-tall portrait:h-full"
-                            : "aspect-video",
-                      ),
-                )}
-                style={{
-                  aspectRatio: getCameraAspect(mainCamera),
-                }}
-              >
+              {!isMulticam && (
+                <div
+                  key={mainCamera}
+                  className={cn(
+                    "relative flex max-h-full min-h-0 min-w-0 max-w-full items-center justify-center",
+                    isDesktop
+                      ? // Desktop: dynamically switch between w-full and h-full based on
+                        // container vs camera aspect ratio to ensure proper fitting
+                        useHeightBased
+                        ? "h-full"
+                        : "w-full"
+                      : cn(
+                          "flex-shrink-0 portrait:w-full landscape:h-full",
+                          mainCameraAspect == "wide"
+                            ? "aspect-wide"
+                            : mainCameraAspect == "tall"
+                              ? "aspect-tall portrait:h-full"
+                              : "aspect-video",
+                        ),
+                  )}
+                  style={{
+                    aspectRatio: getCameraAspect(mainCamera),
+                  }}
+                >
                 {(isDesktop || isTablet) && (
                   <GenAISummaryDialog
                     review={activeReviewItem}
@@ -829,6 +897,7 @@ export function RecordingView({
                   onSeekToTime={manuallySetCurrentTime}
                   onControllerReady={(controller) => {
                     mainControllerRef.current = controller;
+                    multicamControllerRefs.current[mainCamera] = controller;
                   }}
                   isScrubbing={
                     scrubbing ||
@@ -840,8 +909,75 @@ export function RecordingView({
                   toggleFullscreen={toggleFullscreen}
                   containerRef={mainLayoutRef}
                 />
-              </div>
-              {isDesktop && effectiveCameras.length > 1 && (
+                </div>
+              )}
+              {isMulticam && (
+                <div className="grid size-full min-h-0 min-w-0 grid-cols-1 gap-1 sm:grid-cols-2">
+                  {multicamCameras.map((camera) => (
+                    <div
+                      key={camera}
+                      className="relative min-h-0 min-w-0 overflow-hidden rounded-md bg-black"
+                    >
+                      <div className="absolute left-2 top-2 z-10 rounded bg-black/70 px-2 py-1 text-xs text-white">
+                        <CameraNameLabel camera={camera} />
+                      </div>
+                      <DynamicVideoPlayer
+                        className="size-full"
+                        camera={camera}
+                        timeRange={currentTimeRange}
+                        cameraPreviews={allPreviews ?? []}
+                        startTimestamp={playbackStart}
+                        hotKeys={
+                          camera === mainCamera &&
+                          exportMode != "select" &&
+                          debugReplayMode != "select"
+                        }
+                        fullscreen={camera === mainCamera && fullscreen}
+                        onTimestampUpdate={
+                          camera === mainCamera
+                            ? (timestamp) => {
+                                setPlayerTime(timestamp);
+                                setCurrentTime(timestamp);
+                                Object.values(previewRefs.current ?? {}).forEach(
+                                  (prev) =>
+                                    prev.scrubToTimestamp(Math.floor(timestamp)),
+                                );
+                              }
+                            : undefined
+                        }
+                        onClipEnded={
+                          camera === mainCamera ? onClipEnded : undefined
+                        }
+                        onSeekToTime={manuallySetCurrentTime}
+                        onControllerReady={(controller) => {
+                          multicamControllerRefs.current[camera] = controller;
+                          if (camera === mainCamera) {
+                            mainControllerRef.current = controller;
+                          }
+                        }}
+                        isScrubbing={
+                          scrubbing ||
+                          exportMode == "timeline" ||
+                          debugReplayMode == "timeline"
+                        }
+                        supportsFullscreen={
+                          camera === mainCamera && supportsFullScreen
+                        }
+                        setFullResolution={
+                          camera === mainCamera
+                            ? setFullResolution
+                            : ignoreFullResolution
+                        }
+                        toggleFullscreen={toggleFullscreen}
+                        containerRef={
+                          camera === mainCamera ? mainLayoutRef : undefined
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isMulticam && isDesktop && effectiveCameras.length > 1 && (
                 <div
                   ref={previewRowRef}
                   className={cn(
