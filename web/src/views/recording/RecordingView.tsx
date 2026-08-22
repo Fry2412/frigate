@@ -264,6 +264,43 @@ export function RecordingView({
   const [scrubbing, setScrubbing] = useState(false);
   const [currentTime, setCurrentTime] = useState<number>(startTime);
   const [playerTime, setPlayerTime] = useState(startTime);
+  const [isPlaybackPlaying, setIsPlaybackPlaying] = useState(true);
+
+  const synchronizeMulticam = useCallback(
+    (timestamp: number, playing: boolean) => {
+      Object.entries(multicamControllerRefs.current).forEach(
+        ([camera, controller]) => {
+          if (camera !== mainCamera) {
+            controller.synchronizeToTimestamp(timestamp, playing);
+          }
+        },
+      );
+    },
+    [mainCamera],
+  );
+
+  const handleMasterTimestampUpdate = useCallback(
+    (timestamp: number) => {
+      setPlayerTime(timestamp);
+      setCurrentTime(timestamp);
+      Object.values(previewRefs.current ?? {}).forEach((prev) =>
+        prev.scrubToTimestamp(Math.floor(timestamp)),
+      );
+      synchronizeMulticam(
+        timestamp,
+        mainControllerRef.current?.isPlaying() ?? isPlaybackPlaying,
+      );
+    },
+    [isPlaybackPlaying, synchronizeMulticam],
+  );
+
+  const handlePlaybackStateChange = useCallback(
+    (playing: boolean) => {
+      setIsPlaybackPlaying(playing);
+      synchronizeMulticam(currentTime, playing);
+    },
+    [currentTime, synchronizeMulticam],
+  );
 
   const updateSelectedSegment = useCallback(
     (currentTime: number, updateStartTime: boolean) => {
@@ -882,17 +919,13 @@ export function RecordingView({
                   timeRange={currentTimeRange}
                   cameraPreviews={allPreviews ?? []}
                   startTimestamp={playbackStart}
+                  shouldPlay={isPlaybackPlaying}
                   hotKeys={
                     exportMode != "select" && debugReplayMode != "select"
                   }
                   fullscreen={fullscreen}
-                  onTimestampUpdate={(timestamp) => {
-                    setPlayerTime(timestamp);
-                    setCurrentTime(timestamp);
-                    Object.values(previewRefs.current ?? {}).forEach((prev) =>
-                      prev.scrubToTimestamp(Math.floor(timestamp)),
-                    );
-                  }}
+                  onTimestampUpdate={handleMasterTimestampUpdate}
+                  onPlaybackStateChange={handlePlaybackStateChange}
                   onClipEnded={onClipEnded}
                   onSeekToTime={manuallySetCurrentTime}
                   onControllerReady={(controller) => {
@@ -927,6 +960,7 @@ export function RecordingView({
                         timeRange={currentTimeRange}
                         cameraPreviews={allPreviews ?? []}
                         startTimestamp={playbackStart}
+                        shouldPlay={isPlaybackPlaying}
                         hotKeys={
                           camera === mainCamera &&
                           exportMode != "select" &&
@@ -935,14 +969,12 @@ export function RecordingView({
                         fullscreen={camera === mainCamera && fullscreen}
                         onTimestampUpdate={
                           camera === mainCamera
-                            ? (timestamp) => {
-                                setPlayerTime(timestamp);
-                                setCurrentTime(timestamp);
-                                Object.values(previewRefs.current ?? {}).forEach(
-                                  (prev) =>
-                                    prev.scrubToTimestamp(Math.floor(timestamp)),
-                                );
-                              }
+                            ? handleMasterTimestampUpdate
+                            : undefined
+                        }
+                        onPlaybackStateChange={
+                          camera === mainCamera
+                            ? handlePlaybackStateChange
                             : undefined
                         }
                         onClipEnded={

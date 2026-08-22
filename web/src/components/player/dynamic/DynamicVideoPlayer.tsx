@@ -36,12 +36,14 @@ type DynamicVideoPlayerProps = {
   timeRange: TimeRange;
   cameraPreviews: Preview[];
   startTimestamp?: number;
+  shouldPlay?: boolean;
   isScrubbing: boolean;
   hotKeys: boolean;
   supportsFullscreen: boolean;
   fullscreen: boolean;
   onControllerReady: (controller: DynamicVideoController) => void;
   onTimestampUpdate?: (timestamp: number) => void;
+  onPlaybackStateChange?: (playing: boolean) => void;
   onClipEnded?: () => void;
   onSeekToTime?: (timestamp: number, play?: boolean) => void;
   setFullResolution: React.Dispatch<React.SetStateAction<VideoResolutionType>>;
@@ -55,12 +57,14 @@ export default function DynamicVideoPlayer({
   timeRange,
   cameraPreviews,
   startTimestamp,
+  shouldPlay = true,
   isScrubbing,
   hotKeys,
   supportsFullscreen,
   fullscreen,
   onControllerReady,
   onTimestampUpdate,
+  onPlaybackStateChange,
   onClipEnded,
   onSeekToTime,
   setFullResolution,
@@ -82,26 +86,38 @@ export default function DynamicVideoPlayer({
   // controlling playback
 
   const playerRef = useRef<HTMLVideoElement | null>(null);
+  const [playerReady, setPlayerReady] = useState(false);
   const [previewController, setPreviewController] =
     useState<PreviewController | null>(null);
   const [noRecording, setNoRecording] = useState(false);
+  // Don't set source until recordings load - we need accurate startPosition
+  // to avoid hls.js clamping to video end when startPosition exceeds duration
+  const [source, setSource] = useState<HlsSource | undefined>(undefined);
+
   const controller = useMemo(() => {
-    if (!config || !playerRef.current || !previewController) {
+    if (!config || !playerReady || !playerRef.current) {
       return undefined;
     }
 
     return new DynamicVideoController(
       camera,
       playerRef.current,
-      previewController,
+      previewController ?? undefined,
       (config.cameras[camera]?.detect?.annotation_offset || 0) / 1000,
       isScrubbing ? "scrubbing" : "playback",
       setNoRecording,
       () => {},
     );
-    // we only want to fire once when players are ready
+    // The video element is mounted only after the recording source is known.
+    // Use state to trigger controller creation after the ref is populated.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, config, playerRef.current, previewController]);
+  }, [camera, config, playerReady, previewController]);
+
+  useEffect(() => {
+    if (source && playerRef.current) {
+      setPlayerReady(true);
+    }
+  }, [source]);
 
   useEffect(() => {
     if (!controller) {
@@ -121,10 +137,6 @@ export default function DynamicVideoPlayer({
   const [isLoading, setIsLoading] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout>();
-
-  // Don't set source until recordings load - we need accurate startPosition
-  // to avoid hls.js clamping to video end when startPosition exceeds duration
-  const [source, setSource] = useState<HlsSource | undefined>(undefined);
 
   // start at correct time
 
@@ -147,12 +159,12 @@ export default function DynamicVideoPlayer({
       return;
     }
 
-    controller.seekToTimestamp(startTimestamp, true);
-  }, [startTimestamp, controller]);
+    controller.seekToTimestamp(startTimestamp, shouldPlay);
+  }, [startTimestamp, shouldPlay, controller]);
 
   const onTimeUpdate = useCallback(
     (time: number) => {
-      if (isScrubbing || !controller || !onTimestampUpdate || time == 0) {
+      if (isScrubbing || time == 0) {
         return;
       }
 
@@ -164,7 +176,9 @@ export default function DynamicVideoPlayer({
         setIsBuffering(false);
       }
 
-      onTimestampUpdate(controller.getProgress(time));
+      if (controller && onTimestampUpdate) {
+        onTimestampUpdate(controller.getProgress(time));
+      }
     },
     [controller, onTimestampUpdate, isBuffering, isLoading, isScrubbing],
   );
@@ -310,6 +324,7 @@ export default function DynamicVideoPlayer({
 
             setNoRecording(false);
           }}
+          onPlayStateChange={onPlaybackStateChange}
           setFullResolution={setFullResolution}
           onUploadFrame={onUploadFrameToPlus}
           toggleFullscreen={toggleFullscreen}

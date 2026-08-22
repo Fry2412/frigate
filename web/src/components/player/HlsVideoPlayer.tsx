@@ -50,6 +50,7 @@ type HlsVideoPlayerProps = {
   onPlayerLoaded?: () => void;
   onTimeUpdate?: (time: number) => void;
   onPlaying?: () => void;
+  onPlayStateChange?: (playing: boolean) => void;
   onSeekToTime?: (timestamp: number, play?: boolean) => void;
   setFullResolution?: React.Dispatch<React.SetStateAction<VideoResolutionType>>;
   onUploadFrame?: (playTime: number) => Promise<AxiosResponse> | undefined;
@@ -75,6 +76,7 @@ export default function HlsVideoPlayer({
   onPlayerLoaded,
   onTimeUpdate,
   onPlaying,
+  onPlayStateChange,
   onSeekToTime,
   setFullResolution,
   onUploadFrame,
@@ -411,6 +413,7 @@ export default function HlsVideoPlayer({
             }}
             onPlay={() => {
               setIsPlaying(true);
+              onPlayStateChange?.(true);
 
               if (isMobile) {
                 setControls(true);
@@ -422,6 +425,7 @@ export default function HlsVideoPlayer({
             onPlaying={onPlaying}
             onPause={() => {
               setIsPlaying(false);
+              onPlayStateChange?.(false);
               clearTimeout(bufferTimeout);
 
               if (isMobile && mobileCtrlTimeout) {

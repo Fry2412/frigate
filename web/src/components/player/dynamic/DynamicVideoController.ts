@@ -13,7 +13,7 @@ export class DynamicVideoController {
   // main state
   public camera = "";
   private playerController: HTMLVideoElement;
-  private previewController: PreviewController;
+  private previewController?: PreviewController;
   private setNoRecording: (noRecs: boolean) => void;
   private setFocusedItem: (timeline: TrackingDetailsSequence) => void;
   private playerMode: PlayerMode = "playback";
@@ -28,7 +28,7 @@ export class DynamicVideoController {
   constructor(
     camera: string,
     playerController: HTMLVideoElement,
-    previewController: PreviewController,
+    previewController: PreviewController | undefined,
     annotationOffset: number,
     defaultMode: PlayerMode,
     setNoRecording: (noRecs: boolean) => void,
@@ -142,6 +142,10 @@ export class DynamicVideoController {
   }
 
   scrubToTimestamp(time: number, saveIfNotReady: boolean = false) {
+    if (!this.previewController) {
+      return;
+    }
+
     const scrubResult = this.previewController.scrubToTimestamp(time);
 
     if (!scrubResult && saveIfNotReady) {
@@ -150,6 +154,47 @@ export class DynamicVideoController {
 
     if (scrubResult && this.playerMode != "scrubbing") {
       this.playerMode = "scrubbing";
+      this.playerController.pause();
+    }
+  }
+
+  /**
+   * Keep a secondary high-resolution player close to the master's timeline.
+   * Seeking is deliberately thresholded to avoid restarting HLS playback on
+   * every timeupdate event while still correcting meaningful drift.
+   */
+  synchronizeToTimestamp(
+    time: number,
+    play: boolean,
+    toleranceSeconds: number = 0.35,
+  ) {
+    if (!this.recordings.length) {
+      return;
+    }
+
+    const seekSeconds = calculateSeekPosition(
+      time,
+      this.recordings,
+      this.inpointOffset,
+    );
+
+    if (seekSeconds === undefined) {
+      return;
+    }
+
+    if (
+      !Number.isFinite(this.playerController.currentTime) ||
+      Math.abs(this.playerController.currentTime - seekSeconds) >
+        toleranceSeconds
+    ) {
+      this.playerController.currentTime = seekSeconds;
+    }
+
+    if (play) {
+      if (!this.isPlaying()) {
+        void this.playerController.play();
+      }
+    } else if (this.isPlaying()) {
       this.playerController.pause();
     }
   }
