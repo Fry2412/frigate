@@ -44,6 +44,9 @@ type HlsVideoPlayerProps = {
   hotKeys: boolean;
   supportsFullscreen: boolean;
   fullscreen: boolean;
+  controlsActive?: boolean;
+  compactControls?: boolean;
+  onActivateControls?: () => void;
   frigateControls?: boolean;
   inpointOffset?: number;
   onClipEnded?: (currentTime: number) => void;
@@ -72,6 +75,9 @@ export default function HlsVideoPlayer({
   hotKeys,
   supportsFullscreen,
   fullscreen,
+  controlsActive = true,
+  compactControls = false,
+  onActivateControls,
   frigateControls = true,
   inpointOffset = 0,
   onClipEnded,
@@ -245,6 +251,18 @@ export default function HlsVideoPlayer({
   const playerAreaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!isMobile || !controlsActive) {
+      return;
+    }
+
+    setControls(true);
+    const timeout = setTimeout(() => setControls(false), 4000);
+    setMobileCtrlTimeout(timeout);
+
+    return () => clearTimeout(timeout);
+  }, [controlsActive]);
+
+  useEffect(() => {
     if (!isDesktop) {
       return;
     }
@@ -295,20 +313,30 @@ export default function HlsVideoPlayer({
           <VideoControls
             className={cn(
               "absolute left-1/2 z-50 -translate-x-1/2",
-              tallCamera ? "bottom-12" : "bottom-5",
+              compactControls
+                ? "bottom-2"
+                : tallCamera
+                  ? "bottom-12"
+                  : "bottom-5",
             )}
             video={videoRef.current}
             isPlaying={isPlaying}
-            show={visible && (controls || controlsOpen)}
+            show={
+              visible &&
+              (isDesktop || controlsActive) &&
+              (controls || controlsOpen)
+            }
             muted={muted}
             volume={volume}
             features={{
-              volume: true,
+              volume: !compactControls,
               seek: true,
               playbackRate: true,
-              plusUpload: isAdmin && config?.plus?.enabled == true,
+              plusUpload:
+                !compactControls && isAdmin && config?.plus?.enabled == true,
               fullscreen: supportsFullscreen,
             }}
+            compact={compactControls}
             setControlsOpen={setControlsOpen}
             setMuted={(muted) => setMuted(muted)}
             playbackRate={playbackRate ?? 1}
@@ -368,7 +396,12 @@ export default function HlsVideoPlayer({
             height: "100%",
           }}
           wrapperProps={{
-            onClick: isDesktop ? undefined : () => setControls(!controls),
+            onClick: isDesktop
+              ? undefined
+              : () => {
+                  onActivateControls?.();
+                  setControls(controlsActive ? !controls : true);
+                },
           }}
           contentStyle={{
             width: "100%",

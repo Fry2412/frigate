@@ -42,6 +42,9 @@ type DynamicVideoPlayerProps = {
   hotKeys: boolean;
   supportsFullscreen: boolean;
   fullscreen: boolean;
+  controlsActive?: boolean;
+  compactControls?: boolean;
+  onActivateControls?: () => void;
   onControllerReady: (controller: DynamicVideoController) => void;
   onTimestampUpdate?: (timestamp: number) => void;
   onPlaybackStateChange?: (playing: boolean) => void;
@@ -65,6 +68,9 @@ export default function DynamicVideoPlayer({
   hotKeys,
   supportsFullscreen,
   fullscreen,
+  controlsActive = true,
+  compactControls = false,
+  onActivateControls,
   onControllerReady,
   onTimestampUpdate,
   onPlaybackStateChange,
@@ -326,6 +332,9 @@ export default function DynamicVideoPlayer({
           hotKeys={hotKeys}
           supportsFullscreen={supportsFullscreen}
           fullscreen={fullscreen}
+          controlsActive={controlsActive}
+          compactControls={compactControls}
+          onActivateControls={onActivateControls}
           inpointOffset={inpointOffset}
           onTimeUpdate={onTimeUpdate}
           onPlayerLoaded={onPlayerLoaded}

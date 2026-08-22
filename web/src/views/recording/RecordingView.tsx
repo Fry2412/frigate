@@ -124,6 +124,8 @@ export function RecordingView({
     startCamera,
   ]);
   const isMulticam = multicamCameras.length > 1;
+  const [activeControlsCamera, setActiveControlsCamera] =
+    useState(startCamera);
 
   const { data: recordingsSummary } = useSWR<RecordingsSummary>([
     "recordings/summary",
@@ -413,6 +415,7 @@ export function RecordingView({
       if (allowedCameras.includes(newCam)) {
         setMainCamera(newCam);
         setMulticamCameras([newCam]);
+        setActiveControlsCamera(newCam);
         setFullResolution({
           width: 0,
           height: 0,
@@ -422,6 +425,36 @@ export function RecordingView({
     },
     [currentTime, allowedCameras],
   );
+
+  const onMulticamSelectionChange = useCallback(
+    (value: string[]) => {
+      const next = value.filter((camera) => camera !== "birdseye");
+
+      if (next.length === 0) {
+        return;
+      }
+
+      setMulticamCameras(next);
+
+      if (!next.includes(mainCamera)) {
+        setMainCamera(next[0]);
+      }
+
+      if (!next.includes(activeControlsCamera)) {
+        setActiveControlsCamera(next[0]);
+      }
+    },
+    [activeControlsCamera, mainCamera],
+  );
+
+  const activateMulticamCamera = useCallback((camera: string) => {
+    setActiveControlsCamera(camera);
+    setMainCamera(camera);
+    setMulticamCameras((current) => [
+      camera,
+      ...current.filter((item) => item !== camera),
+    ]);
+  }, []);
 
   const ignoreFullResolution = useCallback(
     (_resolution: React.SetStateAction<VideoResolutionType>) => undefined,
@@ -487,6 +520,34 @@ export function RecordingView({
   // the player itself at the exact tile size so the video element can fit its
   // source with object-contain instead of introducing a second aspect ratio.
   const grow = "size-full min-h-0 min-w-0";
+
+  const multicamGridClass = useMemo(() => {
+    if (isDesktop) {
+      if (multicamCameras.length === 2) {
+        return "grid-cols-2 grid-rows-1";
+      }
+
+      if (multicamCameras.length === 3) {
+        return "grid-cols-2 grid-rows-2";
+      }
+
+      if (multicamCameras.length === 4) {
+        return "grid-cols-2 grid-rows-2";
+      }
+
+      return "grid-cols-3 auto-rows-fr";
+    }
+
+    if (multicamCameras.length === 2) {
+      return "portrait:grid-cols-1 portrait:grid-rows-2 landscape:grid-cols-2 landscape:grid-rows-1";
+    }
+
+    if (multicamCameras.length === 3) {
+      return "portrait:grid-cols-2 portrait:grid-rows-2 landscape:grid-cols-3 landscape:grid-rows-1";
+    }
+
+    return "grid-cols-2 auto-rows-fr landscape:grid-cols-3";
+  }, [multicamCameras.length]);
 
   // use a resize observer to determine whether to use w-full or h-full based on container aspect ratio
   const [{ width: containerWidth, height: containerHeight }] =
@@ -664,16 +725,11 @@ export function RecordingView({
               selected={mainCamera}
               onSelectCamera={onSelectCamera}
             />
-            {effectiveCameras.length > 1 && (
+            {isDesktop && effectiveCameras.length > 1 && (
               <ToggleGroup
                 type="multiple"
                 value={multicamCameras}
-                onValueChange={(value) => {
-                  const next = value.filter((camera) => camera !== "birdseye");
-                  if (next.length === 0) return;
-                  setMulticamCameras(next);
-                  if (!next.includes(mainCamera)) setMainCamera(next[0]);
-                }}
+                onValueChange={onMulticamSelectionChange}
                 aria-label={t("multicam.selectCameras", {
                   defaultValue: "Select cameras for multi-camera playback",
                 })}
@@ -851,6 +907,47 @@ export function RecordingView({
           </div>
         </div>
 
+        {!isDesktop && effectiveCameras.length > 1 && (
+          <div className="mb-1 flex min-h-11 flex-shrink-0 items-center gap-2 px-2">
+            <div
+              className="flex h-8 min-w-8 flex-shrink-0 items-center justify-center gap-1 rounded-full bg-secondary px-2 text-xs font-medium text-primary"
+              aria-label={t("multicam.selectedCount", {
+                defaultValue: "{{count}} selected cameras",
+                count: multicamCameras.length,
+              })}
+            >
+              <FaVideo className="size-3.5 text-muted-foreground" />
+              <span>{multicamCameras.length}</span>
+            </div>
+            <ToggleGroup
+              type="multiple"
+              value={multicamCameras}
+              onValueChange={onMulticamSelectionChange}
+              aria-label={t("multicam.selectCameras", {
+                defaultValue: "Select cameras for multi-camera playback",
+              })}
+              className="scrollbar-container min-w-0 flex-1 justify-start overflow-x-auto py-1"
+            >
+              {effectiveCameras
+                .filter((camera) => camera !== "birdseye")
+                .map((camera) => (
+                  <ToggleGroupItem
+                    key={camera}
+                    value={camera}
+                    size="sm"
+                    className="h-9 max-w-44 flex-shrink-0 truncate rounded-full border border-border/70 px-3 text-xs shadow-sm data-[state=on]:border-primary/60 data-[state=on]:bg-primary/15 data-[state=on]:text-primary"
+                    aria-label={t("multicam.toggleCamera", {
+                      defaultValue: "Toggle camera {{camera}}",
+                      camera,
+                    })}
+                  >
+                    <CameraNameLabel camera={camera} />
+                  </ToggleGroupItem>
+                ))}
+            </ToggleGroup>
+          </div>
+        )}
+
         <div
           ref={mainLayoutRef}
           className={cn(
@@ -866,7 +963,7 @@ export function RecordingView({
               isDesktop
                 ? "min-w-0 px-4"
                 : isMulticam
-                  ? "portrait:min-h-0 portrait:basis-auto"
+                  ? "portrait:min-h-0 portrait:basis-[64%] portrait:flex-grow-0 landscape:flex-1"
                   : "portrait:max-h-[50dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto",
             )}
           >
@@ -946,15 +1043,47 @@ export function RecordingView({
                 </div>
               )}
               {isMulticam && (
-                <div className="grid size-full min-h-0 min-w-0 auto-rows-fr grid-cols-1 gap-1 sm:grid-cols-2">
-                  {multicamCameras.map((camera) => (
+                <div
+                  className={cn(
+                    "grid size-full min-h-0 min-w-0 gap-1.5",
+                    multicamGridClass,
+                  )}
+                >
+                  {multicamCameras.map((camera, index) => (
                     <div
                       key={camera}
-                      className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-md bg-black"
+                      className={cn(
+                        "relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg border bg-black shadow-sm transition-colors",
+                        camera === mainCamera
+                          ? "border-primary/60 ring-1 ring-primary/30"
+                          : "border-white/10",
+                        multicamCameras.length === 3 &&
+                          index === 0 &&
+                          (isDesktop
+                            ? "row-span-2"
+                            : "portrait:col-span-2"),
+                      )}
                     >
-                      <div className="absolute left-2 top-2 z-10 rounded bg-black/70 px-2 py-1 text-xs text-white">
+                      <button
+                        type="button"
+                        className={cn(
+                          "absolute left-1.5 top-1.5 z-40 max-w-[70%] truncate rounded-full border px-2.5 py-1 text-left text-[11px] font-medium text-white shadow-sm backdrop-blur-sm transition-colors",
+                          camera === mainCamera
+                            ? "border-primary/60 bg-primary/75"
+                            : "border-white/15 bg-black/65",
+                        )}
+                        aria-pressed={camera === mainCamera}
+                        aria-label={t("multicam.makePrimary", {
+                          defaultValue: "Use {{camera}} as the primary camera",
+                          camera,
+                        })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          activateMulticamCamera(camera);
+                        }}
+                      >
                         <CameraNameLabel camera={camera} />
-                      </div>
+                      </button>
                       <DynamicVideoPlayer
                         className="size-full"
                         camera={camera}
@@ -994,6 +1123,13 @@ export function RecordingView({
                           debugReplayMode == "timeline"
                         }
                         supportsFullscreen={supportsFullScreen}
+                        controlsActive={
+                          isDesktop || activeControlsCamera === camera
+                        }
+                        compactControls={!isDesktop}
+                        onActivateControls={() =>
+                          activateMulticamCamera(camera)
+                        }
                         setFullResolution={
                           camera === mainCamera
                             ? setFullResolution
@@ -1258,7 +1394,7 @@ function Timeline({
           : cn(
               timelineType == "timeline"
                 ? isMulticamTimeline
-                  ? "portrait:flex-grow landscape:min-w-[120px] landscape:w-[min(30vw,180px)] landscape:flex-shrink-0"
+                  ? "portrait:min-h-[12rem] portrait:flex-1 landscape:min-w-[120px] landscape:w-[min(30vw,180px)] landscape:flex-shrink-0"
                   : "portrait:flex-grow landscape:w-[100px] landscape:flex-shrink-0"
                 : timelineType == "detail"
                   ? "portrait:flex-grow landscape:w-[19rem] landscape:flex-shrink-0"
@@ -1282,6 +1418,7 @@ function Timeline({
         isMulticamTimeline ? (
           <MultiCameraMotionTimeline
             cameras={timelineCameras}
+            mainCamera={mainCamera}
             reviewItems={reviewItems}
             timelineRef={selectedTimelineRef}
             contentRef={contentRef}
@@ -1386,6 +1523,7 @@ function Timeline({
 
 type MultiCameraMotionTimelineProps = {
   cameras: string[];
+  mainCamera: string;
   reviewItems: ReviewSegment[];
   timelineRef: MutableRefObject<HTMLDivElement | null>;
   contentRef: MutableRefObject<HTMLDivElement | null>;
@@ -1413,6 +1551,7 @@ type MultiCameraMotionTimelineProps = {
 
 function MultiCameraMotionTimeline({
   cameras,
+  mainCamera,
   reviewItems,
   timelineRef,
   contentRef,
@@ -1495,7 +1634,11 @@ function MultiCameraMotionTimeline({
 
   return (
     <div
-      className="grid size-full min-h-0 min-w-0 divide-x divide-border"
+      className={cn(
+        "grid size-full min-h-0 min-w-0 gap-px overflow-hidden bg-border",
+        !isDesktop &&
+          "portrait:rounded-t-xl portrait:border-t landscape:rounded-l-xl landscape:border-l",
+      )}
       style={{
         gridTemplateColumns: `repeat(${cameras.length}, minmax(0, 1fr))`,
       }}
@@ -1504,6 +1647,8 @@ function MultiCameraMotionTimeline({
         <MultiCameraMotionTimelineLane
           key={camera}
           camera={camera}
+          isMainCamera={camera === mainCamera}
+          dense={!isDesktop && cameras.length > 2}
           index={index}
           reviewItems={reviewItems}
           timelineRef={getLaneRef(camera, index)}
@@ -1538,6 +1683,8 @@ function MultiCameraMotionTimeline({
 
 type MultiCameraMotionTimelineLaneProps = {
   camera: string;
+  isMainCamera: boolean;
+  dense: boolean;
   index: number;
   reviewItems: ReviewSegment[];
   timelineRef: MutableRefObject<HTMLDivElement | null>;
@@ -1566,6 +1713,8 @@ type MultiCameraMotionTimelineLaneProps = {
 
 function MultiCameraMotionTimelineLane({
   camera,
+  isMainCamera,
+  dense,
   index,
   reviewItems,
   timelineRef,
@@ -1618,7 +1767,20 @@ function MultiCameraMotionTimelineLane({
 
   return (
     <div className="relative min-h-0 min-w-0 overflow-hidden bg-secondary">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 truncate bg-secondary/80 px-1 text-[8px] leading-3 text-primary md:text-[9px]">
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-x-1 top-1 z-30 flex items-center gap-1 truncate rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-3 shadow-sm backdrop-blur-sm md:text-[10px]",
+          isMainCamera
+            ? "border-primary/50 bg-primary/75 text-primary-foreground"
+            : "border-border/70 bg-secondary/85 text-primary",
+        )}
+      >
+        <span
+          className={cn(
+            "size-1.5 flex-shrink-0 rounded-full",
+            isMainCamera ? "bg-white" : "bg-muted-foreground/60",
+          )}
+        />
         <CameraNameLabel camera={camera} />
       </div>
       <MotionReviewTimeline
@@ -1645,6 +1807,7 @@ function MultiCameraMotionTimelineLane({
         onZoomChange={onZoomChange}
         possibleZoomLevels={possibleZoomLevels}
         currentZoomLevel={currentZoomLevel}
+        dense={dense}
       />
       {isLoading && (
         <div className="pointer-events-none absolute inset-0 z-20 bg-secondary/50">

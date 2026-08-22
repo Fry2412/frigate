@@ -73,6 +73,7 @@ type VideoControlsProps = {
   onUploadFrame?: () => void;
   toggleFullscreen?: () => void;
   containerRef?: React.MutableRefObject<HTMLDivElement | null>;
+  compact?: boolean;
 };
 export default function VideoControls({
   className,
@@ -94,6 +95,7 @@ export default function VideoControls({
   onUploadFrame,
   toggleFullscreen,
   containerRef,
+  compact = false,
 }: VideoControlsProps) {
   // layout
 
@@ -196,6 +198,7 @@ export default function VideoControls({
     <div
       className={cn(
         "z-50 flex w-auto items-center justify-between gap-4 rounded-lg bg-background/60 px-4 py-2 text-primary sm:flex-nowrap sm:gap-8",
+        compact && "gap-3 bg-background/75 px-3 py-1.5 backdrop-blur-sm",
         className,
         isMobileOnly &&
           Object.values(features).filter((feat) => feat).length >
