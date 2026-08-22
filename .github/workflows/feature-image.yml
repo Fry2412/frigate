@@ -40,14 +40,16 @@ jobs:
         shell: bash
         run: echo "tag=feature-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push multi-architecture feature image
+      - name: Build and push default feature image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/main/Dockerfile
           target: frigate
           push: true
-          platforms: linux/amd64,linux/arm64
+          # Feature builds target the runner's default architecture. Frigate's
+          # release pipeline remains responsible for multi-architecture images.
+          platforms: linux/amd64
           tags: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:${{ steps.metadata.outputs.tag }}
           cache-from: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache
           cache-to: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache,mode=max
