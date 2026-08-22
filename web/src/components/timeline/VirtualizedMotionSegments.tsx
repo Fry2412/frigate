@@ -26,6 +26,7 @@ type VirtualizedMotionSegmentsProps = {
   getMotionSegmentValue: (timestamp: number) => number;
   getRecordingAvailability: (timestamp: number) => boolean | undefined;
   alwaysShowMotionLine: boolean;
+  showTimestamps?: boolean;
 };
 
 export interface VirtualizedMotionSegmentsRef {
@@ -59,6 +60,7 @@ export const VirtualizedMotionSegments = forwardRef<
       getMotionSegmentValue,
       getRecordingAvailability,
       alwaysShowMotionLine,
+      showTimestamps = true,
     },
     ref,
   ) => {
@@ -206,6 +208,7 @@ export const VirtualizedMotionSegments = forwardRef<
               scrollToSegment={scrollToSegment}
               dense={dense}
               alwaysShowMotionLine={alwaysShowMotionLine}
+              showTimestamps={showTimestamps}
             />
           </div>
         );
@@ -225,6 +228,7 @@ export const VirtualizedMotionSegments = forwardRef<
         timestampSpread,
         visibleRange.start,
         alwaysShowMotionLine,
+        showTimestamps,
       ],
     );
 

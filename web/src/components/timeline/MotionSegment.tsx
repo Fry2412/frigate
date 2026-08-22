@@ -26,6 +26,7 @@ type MotionSegmentProps = {
   scrollToSegment: (segmentTime: number, ifNeeded?: boolean) => void;
   dense: boolean;
   alwaysShowMotionLine?: boolean;
+  showTimestamps?: boolean;
 };
 
 export function MotionSegment({
@@ -46,6 +47,7 @@ export function MotionSegment({
   scrollToSegment,
   dense,
   alwaysShowMotionLine = false,
+  showTimestamps = true,
 }: MotionSegmentProps) {
   const severityType = "all";
   const { getSeverity, getReviewed, displaySeverityType } =
@@ -218,20 +220,24 @@ export function MotionSegment({
                 />
               )}
 
-              <Tick
-                key={`${segmentKey}_tick`}
-                timestamp={timestamp}
-                timestampSpread={timestampSpread}
-              />
+              {showTimestamps && (
+                <>
+                  <Tick
+                    key={`${segmentKey}_tick`}
+                    timestamp={timestamp}
+                    timestampSpread={timestampSpread}
+                  />
 
-              <Timestamp
-                key={`${segmentKey}_timestamp`}
-                isFirstSegmentInMinimap={isFirstSegmentInMinimap}
-                isLastSegmentInMinimap={isLastSegmentInMinimap}
-                timestamp={timestamp}
-                timestampSpread={timestampSpread}
-                segmentKey={segmentKey}
-              />
+                  <Timestamp
+                    key={`${segmentKey}_timestamp`}
+                    isFirstSegmentInMinimap={isFirstSegmentInMinimap}
+                    isLastSegmentInMinimap={isLastSegmentInMinimap}
+                    timestamp={timestamp}
+                    timestampSpread={timestampSpread}
+                    segmentKey={segmentKey}
+                  />
+                </>
+              )}
             </>
           )}
 

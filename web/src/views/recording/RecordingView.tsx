@@ -10,6 +10,11 @@ import { DynamicVideoController } from "@/components/player/dynamic/DynamicVideo
 import DynamicVideoPlayer from "@/components/player/dynamic/DynamicVideoPlayer";
 import MotionReviewTimeline from "@/components/timeline/MotionReviewTimeline";
 import DetailStream from "@/components/timeline/DetailStream";
+import ReviewTimeline from "@/components/timeline/ReviewTimeline";
+import {
+  VirtualizedMotionSegments,
+  VirtualizedMotionSegmentsRef,
+} from "@/components/timeline/VirtualizedMotionSegments";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useOverlayState } from "@/hooks/use-overlay-state";
@@ -66,6 +71,7 @@ import { useTimezone } from "@/hooks/use-date-utils";
 import { useTimelineZoom } from "@/hooks/use-timeline-zoom";
 import { useTranslation } from "react-i18next";
 import { useTimelineUtils } from "@/hooks/use-timeline-utils";
+import { useMotionSegmentUtils } from "@/hooks/use-motion-segment-utils";
 import {
   Tooltip,
   TooltipContent,
@@ -1385,7 +1391,7 @@ function Timeline({
           ? cn(
               timelineType == "timeline"
                 ? isMulticamTimeline
-                  ? "min-w-[120px] w-[min(18vw,180px)] flex-shrink-0"
+                  ? "w-[clamp(200px,22vw,320px)] flex-shrink-0"
                   : "w-[100px] flex-shrink-0"
                 : timelineType == "detail"
                   ? "min-w-[20rem] max-w-[30%] flex-shrink-0 flex-grow-0 basis-[30rem] md:min-w-[20rem] md:max-w-[25%] lg:min-w-[30rem] lg:max-w-[33%]"
@@ -1576,169 +1582,167 @@ function MultiCameraMotionTimeline({
   possibleZoomLevels,
   currentZoomLevel,
 }: MultiCameraMotionTimelineProps) {
-  const laneRefs = useRef<
-    Record<string, MutableRefObject<HTMLDivElement | null>>
-  >({});
-  const isSyncingScroll = useRef(false);
-
-  const getLaneRef = useCallback(
-    (camera: string, index: number) => {
-      if (index === 0) {
-        return timelineRef;
-      }
-
-      if (!laneRefs.current[camera]) {
-        laneRefs.current[camera] = { current: null };
-      }
-
-      return laneRefs.current[camera];
-    },
-    [timelineRef],
+  const timelineDuration = useMemo(
+    () => timelineStart - timelineEnd + 4 * segmentDuration,
+    [segmentDuration, timelineEnd, timelineStart],
   );
+  const { alignStartDateToTimeline } = useTimelineUtils({
+    segmentDuration,
+    timelineDuration,
+    timelineRef,
+  });
+  const timelineStartAligned = useMemo(
+    () => alignStartDateToTimeline(timelineStart) + 2 * segmentDuration,
+    [alignStartDateToTimeline, segmentDuration, timelineStart],
+  );
+  const segments = useMemo(() => {
+    const segmentTimes: number[] = [];
+    let segmentTime = timelineStartAligned;
 
-  useEffect(() => {
-    const refs = cameras.map((camera, index) =>
-      getLaneRef(camera, index),
-    );
+    for (let i = 0; i < Math.ceil(timelineDuration / segmentDuration); i++) {
+      segmentTimes.push(segmentTime);
+      segmentTime -= segmentDuration;
+    }
 
-    const handleScroll = (event: Event) => {
-      if (isSyncingScroll.current) {
-        return;
-      }
+    return segmentTimes;
+  }, [segmentDuration, timelineDuration, timelineStartAligned]);
 
-      const source = event.currentTarget as HTMLDivElement;
-      isSyncingScroll.current = true;
-      refs.forEach((ref) => {
-        if (ref.current && ref.current !== source) {
-          ref.current.scrollTop = source.scrollTop;
-        }
-      });
-
-      window.requestAnimationFrame(() => {
-        isSyncingScroll.current = false;
-      });
-    };
-
-    refs.forEach((ref) => {
-      ref.current?.addEventListener("scroll", handleScroll, {
-        passive: true,
-      });
-    });
-
-    return () => {
-      refs.forEach((ref) => {
-        ref.current?.removeEventListener("scroll", handleScroll);
-      });
-    };
-  }, [cameras, getLaneRef]);
+  const primarySegmentsRef = useRef<VirtualizedMotionSegmentsRef>(null);
+  const scrollToSegment = useCallback(
+    (segmentTime: number, ifNeeded?: boolean) =>
+      primarySegmentsRef.current?.scrollToSegment(segmentTime, ifNeeded),
+    [],
+  );
+  const dense = !isDesktop && cameras.length > 2;
+  const laneGridStyle = useMemo(
+    () => ({
+      gridTemplateColumns: `repeat(${cameras.length}, minmax(0, 1fr))`,
+    }),
+    [cameras.length],
+  );
 
   return (
     <div
       className={cn(
-        "grid size-full min-h-0 min-w-0 gap-px overflow-hidden bg-border",
+        "relative size-full min-h-0 min-w-0 overflow-hidden bg-border",
         !isDesktop &&
           "portrait:rounded-t-xl portrait:border-t landscape:rounded-l-xl landscape:border-l",
       )}
-      style={{
-        gridTemplateColumns: `repeat(${cameras.length}, minmax(0, 1fr))`,
-      }}
     >
-      {cameras.map((camera, index) => (
-        <MultiCameraMotionTimelineLane
-          key={camera}
-          camera={camera}
-          isMainCamera={camera === mainCamera}
-          dense={!isDesktop && cameras.length > 2}
-          index={index}
-          reviewItems={reviewItems}
-          timelineRef={getLaneRef(camera, index)}
-          contentRef={contentRef}
-          segmentDuration={segmentDuration}
-          timestampSpread={timestampSpread}
-          timelineStart={timelineStart}
-          timelineEnd={timelineEnd}
-          alignedAfter={alignedAfter}
-          alignedBefore={alignedBefore}
-          showHandlebar={index === 0 && showHandlebar}
-          showExportHandles={index === 0 && showExportHandles}
-          exportStartTime={exportStartTime}
-          exportEndTime={exportEndTime}
-          setExportStartTime={setExportStartTime}
-          setExportEndTime={setExportEndTime}
-          handlebarTime={handlebarTime}
-          setHandlebarTime={setHandlebarTime}
-          onHandlebarDraggingChange={
-            index === 0 ? onHandlebarDraggingChange : undefined
-          }
-          isZooming={index === 0 && isZooming}
-          zoomDirection={index === 0 ? zoomDirection : null}
-          onZoomChange={index === 0 ? onZoomChange : undefined}
-          possibleZoomLevels={index === 0 ? possibleZoomLevels : undefined}
-          currentZoomLevel={index === 0 ? currentZoomLevel : undefined}
-        />
-      ))}
+      <ReviewTimeline
+        timelineRef={timelineRef}
+        contentRef={contentRef}
+        segmentDuration={segmentDuration}
+        timelineDuration={timelineDuration}
+        timelineStartAligned={timelineStartAligned}
+        showHandlebar={showHandlebar}
+        showExportHandles={showExportHandles}
+        handlebarTime={handlebarTime}
+        setHandlebarTime={setHandlebarTime}
+        onHandlebarDraggingChange={onHandlebarDraggingChange}
+        exportStartTime={exportStartTime}
+        exportEndTime={exportEndTime}
+        setExportStartTime={setExportStartTime}
+        setExportEndTime={setExportEndTime}
+        dense={dense}
+        segments={segments}
+        scrollToSegment={scrollToSegment}
+        isZooming={isZooming}
+        zoomDirection={zoomDirection}
+        onZoomChange={onZoomChange}
+        possibleZoomLevels={possibleZoomLevels}
+        currentZoomLevel={currentZoomLevel}
+      >
+        <div
+          className="grid min-w-0 gap-px bg-border"
+          style={{
+            ...laneGridStyle,
+            height: `${segments.length * 8}px`,
+          }}
+        >
+          {cameras.map((camera, index) => (
+            <MultiCameraMotionTimelineLane
+              key={camera}
+              camera={camera}
+              index={index}
+              reviewItems={reviewItems}
+              timelineRef={timelineRef}
+              contentRef={contentRef}
+              segments={segments}
+              segmentDuration={segmentDuration}
+              timestampSpread={timestampSpread}
+              alignedAfter={alignedAfter}
+              alignedBefore={alignedBefore}
+              setHandlebarTime={setHandlebarTime}
+              dense={dense}
+              virtualizedRef={index === 0 ? primarySegmentsRef : undefined}
+            />
+          ))}
+        </div>
+      </ReviewTimeline>
+
+      <div
+        className="pointer-events-none absolute inset-x-0 top-1 z-30 grid min-w-0 gap-px px-1"
+        style={laneGridStyle}
+      >
+        {cameras.map((camera) => (
+          <div
+            key={camera}
+            className={cn(
+              "mx-0.5 flex min-w-0 items-center gap-1 truncate rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-3 shadow-sm backdrop-blur-sm md:text-[10px]",
+              camera === mainCamera
+                ? "border-primary/50 bg-primary/75 text-primary-foreground"
+                : "border-border/70 bg-secondary/85 text-primary",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 flex-shrink-0 rounded-full",
+                camera === mainCamera
+                  ? "bg-white"
+                  : "bg-muted-foreground/60",
+              )}
+            />
+            <span className="truncate">
+              <CameraNameLabel camera={camera} />
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 type MultiCameraMotionTimelineLaneProps = {
   camera: string;
-  isMainCamera: boolean;
-  dense: boolean;
   index: number;
   reviewItems: ReviewSegment[];
   timelineRef: MutableRefObject<HTMLDivElement | null>;
   contentRef: MutableRefObject<HTMLDivElement | null>;
+  segments: number[];
   segmentDuration: number;
   timestampSpread: number;
-  timelineStart: number;
-  timelineEnd: number;
   alignedAfter: number;
   alignedBefore: number;
-  showHandlebar: boolean;
-  showExportHandles: boolean;
-  exportStartTime?: number;
-  exportEndTime?: number;
-  setExportStartTime: React.Dispatch<React.SetStateAction<number>>;
-  setExportEndTime: React.Dispatch<React.SetStateAction<number>>;
-  handlebarTime: number;
   setHandlebarTime: React.Dispatch<React.SetStateAction<number>>;
-  onHandlebarDraggingChange?: (isDragging: boolean) => void;
-  isZooming: boolean;
-  zoomDirection: TimelineZoomDirection;
-  onZoomChange?: (newZoomLevel: number) => void;
-  possibleZoomLevels?: ZoomLevel[];
-  currentZoomLevel?: number;
+  dense: boolean;
+  virtualizedRef?: React.Ref<VirtualizedMotionSegmentsRef>;
 };
 
 function MultiCameraMotionTimelineLane({
   camera,
-  isMainCamera,
-  dense,
   index,
   reviewItems,
   timelineRef,
   contentRef,
+  segments,
   segmentDuration,
   timestampSpread,
-  timelineStart,
-  timelineEnd,
   alignedAfter,
   alignedBefore,
-  showHandlebar,
-  showExportHandles,
-  exportStartTime,
-  exportEndTime,
-  setExportStartTime,
-  setExportEndTime,
-  handlebarTime,
   setHandlebarTime,
-  onHandlebarDraggingChange,
-  isZooming,
-  zoomDirection,
-  onZoomChange,
-  possibleZoomLevels,
-  currentZoomLevel,
+  dense,
+  virtualizedRef,
 }: MultiCameraMotionTimelineLaneProps) {
   const { data: motionData, isLoading } = useSWR<MotionData[]>([
     "review/activity/motion",
@@ -1764,58 +1768,47 @@ function MultiCameraMotionTimelineLane({
     () => reviewItems.filter((review) => review.camera === camera),
     [camera, reviewItems],
   );
+  const { getMotionSegmentValue } = useMotionSegmentUtils(
+    segmentDuration,
+    motionData ?? [],
+  );
+  const getRecordingAvailability = useCallback(
+    (time: number): boolean | undefined => {
+      if (noRecordings == undefined) {
+        return undefined;
+      }
+
+      return !noRecordings.some(
+        (range) => time >= range.start_time && time < range.end_time,
+      );
+    },
+    [noRecordings],
+  );
 
   return (
-    <div className="relative min-h-0 min-w-0 overflow-hidden bg-secondary">
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-1 top-1 z-30 flex items-center gap-1 truncate rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-3 shadow-sm backdrop-blur-sm md:text-[10px]",
-          isMainCamera
-            ? "border-primary/50 bg-primary/75 text-primary-foreground"
-            : "border-border/70 bg-secondary/85 text-primary",
-        )}
-      >
-        <span
-          className={cn(
-            "size-1.5 flex-shrink-0 rounded-full",
-            isMainCamera ? "bg-white" : "bg-muted-foreground/60",
-          )}
-        />
-        <CameraNameLabel camera={camera} />
-      </div>
-      <MotionReviewTimeline
+    <div className="relative min-h-0 min-w-0 bg-secondary">
+      <VirtualizedMotionSegments
+        ref={virtualizedRef}
         timelineRef={timelineRef}
-        segmentDuration={segmentDuration}
-        timestampSpread={timestampSpread}
-        timelineStart={timelineStart}
-        timelineEnd={timelineEnd}
-        showHandlebar={showHandlebar}
-        showExportHandles={showExportHandles}
-        exportStartTime={exportStartTime}
-        exportEndTime={exportEndTime}
-        setExportStartTime={setExportStartTime}
-        setExportEndTime={setExportEndTime}
-        handlebarTime={handlebarTime}
-        setHandlebarTime={setHandlebarTime}
+        segments={segments}
         events={cameraReviewItems}
         motion_events={motionData ?? []}
-        noRecordingRanges={noRecordings ?? []}
+        segmentDuration={segmentDuration}
+        timestampSpread={timestampSpread}
+        showMinimap={false}
         contentRef={contentRef}
-        onHandlebarDraggingChange={onHandlebarDraggingChange}
-        isZooming={isZooming}
-        zoomDirection={zoomDirection}
-        onZoomChange={onZoomChange}
-        possibleZoomLevels={possibleZoomLevels}
-        currentZoomLevel={currentZoomLevel}
+        setHandlebarTime={setHandlebarTime}
         dense={dense}
+        motionOnly={false}
+        getMotionSegmentValue={getMotionSegmentValue}
+        getRecordingAvailability={getRecordingAvailability}
+        alwaysShowMotionLine={false}
+        showTimestamps={index === 0}
       />
       {isLoading && (
         <div className="pointer-events-none absolute inset-0 z-20 bg-secondary/50">
           <Skeleton className="size-full rounded-none" />
         </div>
-      )}
-      {index > 0 && (
-        <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border" />
       )}
     </div>
   );
