@@ -36,6 +36,7 @@ type DynamicVideoPlayerProps = {
   timeRange: TimeRange;
   cameraPreviews: Preview[];
   startTimestamp?: number;
+  scrubTimestamp?: number;
   shouldPlay?: boolean;
   isScrubbing: boolean;
   hotKeys: boolean;
@@ -58,6 +59,7 @@ export default function DynamicVideoPlayer({
   timeRange,
   cameraPreviews,
   startTimestamp,
+  scrubTimestamp,
   shouldPlay = true,
   isScrubbing,
   hotKeys,
@@ -262,6 +264,21 @@ export default function DynamicVideoPlayer({
     // we only want this to change when controller or recordings update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, recordings]);
+
+  // A preview controller can become ready after the timeline has already
+  // entered scrubbing mode. Retry the latest timestamp when that happens and
+  // keep the request queued until the preview media has loaded.
+  useEffect(() => {
+    if (
+      !controller ||
+      scrubTimestamp == undefined ||
+      (!isScrubbing && !isLoading)
+    ) {
+      return;
+    }
+
+    controller.scrubToTimestamp(scrubTimestamp, true);
+  }, [controller, isLoading, isScrubbing, scrubTimestamp]);
 
   const inpointOffset = useMemo(
     () => calculateInpointOffset(recordingParams.after, (recordings || [])[0]),

@@ -153,15 +153,20 @@ function PreviewVideoPlayer({
   // controlling playback
 
   const previewRef = useRef<HTMLVideoElement | null>(null);
+  const [previewElement, setPreviewElement] = useState<HTMLVideoElement | null>(
+    null,
+  );
+  const setPreviewRef = useCallback((element: HTMLVideoElement | null) => {
+    previewRef.current = element;
+    setPreviewElement(element);
+  }, []);
   const controller = useMemo(() => {
-    if (!config || !previewRef.current) {
+    if (!config || !previewElement) {
       return undefined;
     }
 
     return new PreviewVideoController(camera, previewRef);
-    // we only care when preview is ready
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, config, previewRef.current]);
+  }, [camera, config, previewElement]);
 
   useEffect(() => {
     if (!controller) {
@@ -316,6 +321,15 @@ function PreviewVideoPlayer({
               setFirstLoad(false);
             }
 
+            if (
+              previewRef.current &&
+              startTime != undefined &&
+              currentPreview
+            ) {
+              previewRef.current.currentTime =
+                startTime - currentPreview.start;
+            }
+
             if (controller) {
               controller.previewReady();
             } else {
@@ -327,11 +341,6 @@ function PreviewVideoPlayer({
                 previewRef.current.videoWidth,
                 previewRef.current.videoHeight,
               ]);
-
-              if (startTime && currentPreview) {
-                previewRef.current.currentTime =
-                  startTime - currentPreview.start;
-              }
             }
           }}
         >
@@ -397,7 +406,7 @@ class PreviewVideoController extends PreviewController {
     const seekTime = Math.max(0, time - this.preview.start);
 
     if (this.seeking) {
-      this.timeToSeek = seekTime;
+      this.timeToSeek = time;
     } else {
       this.previewRef.current.currentTime = seekTime;
       this.seeking = true;
@@ -411,16 +420,28 @@ class PreviewVideoController extends PreviewController {
       return;
     }
 
-    if (this.timeToSeek) {
+    if (this.timeToSeek !== undefined) {
+      if (
+        this.timeToSeek < this.preview.start ||
+        this.timeToSeek > this.preview.end
+      ) {
+        this.timeToSeek = undefined;
+        this.seeking = false;
+        return;
+      }
+
       const diff = Math.round(
-        this.timeToSeek - this.previewRef.current.currentTime,
+        this.timeToSeek -
+          this.preview.start -
+          this.previewRef.current.currentTime,
       );
 
       const scrubLimit = isMobile ? 1 : 0.5;
 
       if (Math.abs(diff) >= scrubLimit) {
         // only seek if there is an appropriate amount of time difference
-        this.previewRef.current.currentTime = this.timeToSeek;
+        this.previewRef.current.currentTime =
+          this.timeToSeek - this.preview.start;
       } else {
         this.seeking = false;
         this.timeToSeek = undefined;
@@ -431,9 +452,7 @@ class PreviewVideoController extends PreviewController {
   }
 
   override setNewPreviewStartTime(time: number) {
-    if (this.preview) {
-      this.timeToSeek = time - this.preview.start;
-    }
+    this.timeToSeek = time;
   }
 
   previewReady() {
@@ -441,7 +460,7 @@ class PreviewVideoController extends PreviewController {
     this.seeking = false;
     this.previewRef.current?.pause();
 
-    if (this.timeToSeek) {
+    if (this.timeToSeek !== undefined) {
       this.finishedSeeking();
     }
   }

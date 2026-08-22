@@ -338,11 +338,11 @@ export function RecordingView({
       }
 
       Object.values(multicamControllerRefs.current).forEach((controller) =>
-        controller.scrubToTimestamp(currentTime),
+        controller.scrubToTimestamp(currentTime, true),
       );
 
       Object.values(previewRefs.current).forEach((controller) => {
-        controller.scrubToTimestamp(currentTime);
+        controller.scrubToTimestamp(currentTime, true);
       });
     }
     // we only want to seek when current time updates
@@ -927,6 +927,7 @@ export function RecordingView({
                   timeRange={currentTimeRange}
                   cameraPreviews={allPreviews ?? []}
                   startTimestamp={playbackStart}
+                  scrubTimestamp={currentTime}
                   shouldPlay={isPlaybackPlaying}
                   hotKeys={
                     exportMode != "select" && debugReplayMode != "select"
@@ -969,6 +970,7 @@ export function RecordingView({
                         timeRange={currentTimeRange}
                         cameraPreviews={allPreviews ?? []}
                         startTimestamp={playbackStart}
+                        scrubTimestamp={currentTime}
                         shouldPlay={isPlaybackPlaying}
                         hotKeys={
                           camera === mainCamera &&
