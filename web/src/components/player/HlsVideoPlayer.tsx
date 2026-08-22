@@ -51,6 +51,8 @@ type HlsVideoPlayerProps = {
   onTimeUpdate?: (time: number) => void;
   onPlaying?: () => void;
   onPlayStateChange?: (playing: boolean) => void;
+  onSeekRelative?: (diff: number) => void;
+  onPlaybackRateChange?: (rate: number) => void;
   onSeekToTime?: (timestamp: number, play?: boolean) => void;
   setFullResolution?: React.Dispatch<React.SetStateAction<VideoResolutionType>>;
   onUploadFrame?: (playTime: number) => Promise<AxiosResponse> | undefined;
@@ -77,6 +79,8 @@ export default function HlsVideoPlayer({
   onTimeUpdate,
   onPlaying,
   onPlayStateChange,
+  onSeekRelative,
+  onPlaybackRateChange,
   onSeekToTime,
   setFullResolution,
   onUploadFrame,
@@ -205,13 +209,18 @@ export default function HlsVideoPlayer({
         return;
       }
 
+      // This callback represents an intentional user action. Native play/pause
+      // events are deliberately not propagated because autoplay and buffering
+      // on a secondary camera must not change the state of the whole group.
+      onPlayStateChange?.(play);
+
       if (play) {
-        videoRef.current.play();
+        void videoRef.current.play();
       } else {
         videoRef.current.pause();
       }
     },
-    [videoRef],
+    [onPlayStateChange, videoRef],
   );
 
   // controls
@@ -233,6 +242,7 @@ export default function HlsVideoPlayer({
     width: number;
     height: number;
   }>({ width: 0, height: 0 });
+  const playerAreaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -240,11 +250,11 @@ export default function HlsVideoPlayer({
     }
 
     const callback = (e: MouseEvent) => {
-      if (!videoRef.current) {
+      if (!playerAreaRef.current) {
         return;
       }
 
-      const rect = videoRef.current.getBoundingClientRect();
+      const rect = playerAreaRef.current.getBoundingClientRect();
 
       if (
         e.clientX > rect.left &&
@@ -261,7 +271,7 @@ export default function HlsVideoPlayer({
     return () => {
       window.removeEventListener("mousemove", callback);
     };
-  }, [videoRef, controlsOpen]);
+  }, [controlsOpen]);
 
   const getVideoTime = useCallback(() => {
     const currentTime = videoRef.current?.currentTime;
@@ -274,246 +284,255 @@ export default function HlsVideoPlayer({
   }, [videoRef, inpointOffset]);
 
   return (
-    <TransformWrapper
-      minScale={1.0}
-      wheel={{ smoothStep: 0.005 }}
-      onZoom={(zoom) => setZoomScale(zoom.state.scale)}
-      disabled={!frigateControls}
-    >
-      {frigateControls && (
-        <VideoControls
-          className={cn(
-            "absolute left-1/2 z-50 -translate-x-1/2",
-            tallCamera ? "bottom-12" : "bottom-5",
-          )}
-          video={videoRef.current}
-          isPlaying={isPlaying}
-          show={visible && (controls || controlsOpen)}
-          muted={muted}
-          volume={volume}
-          features={{
-            volume: true,
-            seek: true,
-            playbackRate: true,
-            plusUpload: isAdmin && config?.plus?.enabled == true,
-            fullscreen: supportsFullscreen,
-          }}
-          setControlsOpen={setControlsOpen}
-          setMuted={(muted) => setMuted(muted)}
-          playbackRate={playbackRate ?? 1}
-          hotKeys={hotKeys}
-          onPlayPause={onPlayPause}
-          onSeek={(diff) => {
-            const currentTime = videoRef.current?.currentTime;
-
-            if (!videoRef.current || !currentTime) {
-              return;
-            }
-
-            videoRef.current.currentTime = Math.max(0, currentTime + diff);
-          }}
-          onSetPlaybackRate={(rate) => {
-            setPlaybackRate(rate, true);
-
-            if (videoRef.current) {
-              videoRef.current.playbackRate = rate;
-            }
-          }}
-          onUploadFrame={async () => {
-            const frameTime = getVideoTime();
-
-            if (frameTime && onUploadFrame) {
-              const resp = await onUploadFrame(frameTime);
-
-              if (resp && resp.status == 200) {
-                toast.success(t("toast.success.submittedFrigatePlus"), {
-                  position: "top-center",
-                });
-              } else {
-                toast.success(t("toast.error.submitFrigatePlusFailed"), {
-                  position: "top-center",
-                });
-              }
-            }
-          }}
-          fullscreen={fullscreen}
-          toggleFullscreen={toggleFullscreen}
-          containerRef={containerRef}
-        />
-      )}
-      <TransformComponent
-        wrapperStyle={{
-          display: visible ? undefined : "none",
-          width: "100%",
-          height: "100%",
-        }}
-        wrapperProps={{
-          onClick: isDesktop ? undefined : () => setControls(!controls),
-        }}
-        contentStyle={{
-          width: "100%",
-          height: isMobile ? "100%" : undefined,
-        }}
+    <div ref={playerAreaRef} className="relative size-full">
+      <TransformWrapper
+        minScale={1.0}
+        wheel={{ smoothStep: 0.005 }}
+        onZoom={(zoom) => setZoomScale(zoom.state.scale)}
+        disabled={!frigateControls}
       >
-        <div className="relative size-full">
-          {transformedOverlay}
-          {isDetailMode &&
-            camera &&
-            currentTime != null &&
-            loadedMetadata &&
-            videoDimensions.width > 0 &&
-            videoDimensions.height > 0 && (
-              <div
-                className={cn(
-                  "absolute inset-0 z-50",
-                  isDesktop
-                    ? "size-full"
-                    : "mx-auto flex items-center justify-center portrait:max-h-[50dvh]",
-                )}
-                style={{
-                  aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`,
-                }}
-              >
-                <ObjectTrackOverlay
-                  key={`overlay-${currentTime}`}
-                  camera={camera}
-                  showBoundingBoxes={!isPlaying}
-                  currentTime={currentTime}
-                  videoWidth={videoDimensions.width}
-                  videoHeight={videoDimensions.height}
-                  className="absolute inset-0 z-10"
-                  onSeekToTime={(timestamp, play) => {
-                    if (onSeekToTime) {
-                      onSeekToTime(timestamp, play);
-                    }
-                  }}
-                />
-              </div>
+        {frigateControls && (
+          <VideoControls
+            className={cn(
+              "absolute left-1/2 z-50 -translate-x-1/2",
+              tallCamera ? "bottom-12" : "bottom-5",
             )}
-          <video
-            ref={videoRef}
-            className={`size-full rounded-lg bg-black md:rounded-2xl ${loadedMetadata ? "" : "invisible"} cursor-pointer`}
-            preload="auto"
-            autoPlay
-            controls={!frigateControls}
-            playsInline
+            video={videoRef.current}
+            isPlaying={isPlaying}
+            show={visible && (controls || controlsOpen)}
             muted={muted}
-            onClick={
-              isDesktop
-                ? () => {
-                    if (zoomScale == 1.0) onPlayPause(!isPlaying);
-                  }
-                : undefined
-            }
-            onVolumeChange={() => {
-              setVolume(videoRef.current?.volume ?? 1.0, true);
-              if (!frigateControls) {
-                setMuted(videoRef.current?.muted);
-              }
+            volume={volume}
+            features={{
+              volume: true,
+              seek: true,
+              playbackRate: true,
+              plusUpload: isAdmin && config?.plus?.enabled == true,
+              fullscreen: supportsFullscreen,
             }}
-            onPlay={() => {
-              setIsPlaying(true);
-              onPlayStateChange?.(true);
+            setControlsOpen={setControlsOpen}
+            setMuted={(muted) => setMuted(muted)}
+            playbackRate={playbackRate ?? 1}
+            hotKeys={hotKeys}
+            onPlayPause={onPlayPause}
+            onSeek={(diff) => {
+              const currentTime = videoRef.current?.currentTime;
 
-              if (isMobile) {
-                setControls(true);
-                setMobileCtrlTimeout(
-                  setTimeout(() => setControls(false), 4000),
-                );
-              }
-            }}
-            onPlaying={onPlaying}
-            onPause={() => {
-              setIsPlaying(false);
-              onPlayStateChange?.(false);
-              clearTimeout(bufferTimeout);
-
-              if (isMobile && mobileCtrlTimeout) {
-                clearTimeout(mobileCtrlTimeout);
-              }
-            }}
-            onWaiting={() => {
-              if (onError != undefined) {
-                if (videoRef.current?.paused) {
-                  return;
-                }
-
-                setBufferTimeout(
-                  setTimeout(() => {
-                    if (
-                      document.visibilityState === "visible" &&
-                      videoRef.current
-                    ) {
-                      onError("stalled");
-                    }
-                  }, 3000),
-                );
-              }
-            }}
-            onProgress={() => {
-              if (onError != undefined) {
-                if (videoRef.current?.paused) {
-                  return;
-                }
-
-                if (bufferTimeout) {
-                  clearTimeout(bufferTimeout);
-                  setBufferTimeout(undefined);
-                }
-              }
-            }}
-            onTimeUpdate={() => {
-              if (!onTimeUpdate) {
+              if (!videoRef.current || currentTime == null) {
                 return;
               }
 
-              const frameTime = getVideoTime();
-
-              if (frameTime) {
-                onTimeUpdate(frameTime);
-              }
-            }}
-            onLoadedData={() => {
-              onPlayerLoaded?.();
-              handleLoadedMetadata();
-
-              if (videoRef.current) {
-                if (playbackRate) {
-                  videoRef.current.playbackRate = playbackRate;
-                }
-
-                if (volume) {
-                  videoRef.current.volume = volume;
-                }
-              }
-            }}
-            onEnded={() => {
-              if (onClipEnded) {
-                onClipEnded(getVideoTime() ?? 0);
-              }
-            }}
-            onError={(e) => {
-              if (
-                !hlsRef.current &&
-                // @ts-expect-error code does exist
-                unsupportedErrorCodes.includes(e.target.error.code) &&
-                videoRef.current
-              ) {
-                setLoadedMetadata(false);
-                setUseHlsCompat(true);
+              if (onSeekRelative) {
+                onSeekRelative(diff);
               } else {
-                toast.error(
-                  // @ts-expect-error code does exist
-                  `Failed to play recordings (error ${e.target.error.code}): ${e.target.error.message}`,
-                  {
-                    position: "top-center",
-                  },
+                videoRef.current.currentTime = Math.max(
+                  0,
+                  currentTime + diff,
                 );
               }
             }}
+            onSetPlaybackRate={(rate) => {
+              setPlaybackRate(rate, true);
+
+              if (videoRef.current) {
+                videoRef.current.playbackRate = rate;
+              }
+
+              onPlaybackRateChange?.(rate);
+            }}
+            onUploadFrame={async () => {
+              const frameTime = getVideoTime();
+
+              if (frameTime && onUploadFrame) {
+                const resp = await onUploadFrame(frameTime);
+
+                if (resp && resp.status == 200) {
+                  toast.success(t("toast.success.submittedFrigatePlus"), {
+                    position: "top-center",
+                  });
+                } else {
+                  toast.success(t("toast.error.submitFrigatePlusFailed"), {
+                    position: "top-center",
+                  });
+                }
+              }
+            }}
+            fullscreen={fullscreen}
+            toggleFullscreen={toggleFullscreen}
+            containerRef={containerRef}
           />
-        </div>
-      </TransformComponent>
-    </TransformWrapper>
+        )}
+        <TransformComponent
+          wrapperStyle={{
+            display: visible ? undefined : "none",
+            width: "100%",
+            height: "100%",
+          }}
+          wrapperProps={{
+            onClick: isDesktop ? undefined : () => setControls(!controls),
+          }}
+          contentStyle={{
+            width: "100%",
+            height: isMobile ? "100%" : undefined,
+          }}
+        >
+          <div className="relative size-full">
+            {transformedOverlay}
+            {isDetailMode &&
+              camera &&
+              currentTime != null &&
+              loadedMetadata &&
+              videoDimensions.width > 0 &&
+              videoDimensions.height > 0 && (
+                <div
+                  className={cn(
+                    "absolute inset-0 z-50",
+                    isDesktop
+                      ? "size-full"
+                      : "mx-auto flex items-center justify-center portrait:max-h-[50dvh]",
+                  )}
+                  style={{
+                    aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`,
+                  }}
+                >
+                  <ObjectTrackOverlay
+                    key={`overlay-${currentTime}`}
+                    camera={camera}
+                    showBoundingBoxes={!isPlaying}
+                    currentTime={currentTime}
+                    videoWidth={videoDimensions.width}
+                    videoHeight={videoDimensions.height}
+                    className="absolute inset-0 z-10"
+                    onSeekToTime={(timestamp, play) => {
+                      if (onSeekToTime) {
+                        onSeekToTime(timestamp, play);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+            <video
+              ref={videoRef}
+              className={`size-full rounded-lg bg-black md:rounded-2xl ${loadedMetadata ? "" : "invisible"} cursor-pointer`}
+              preload="auto"
+              autoPlay
+              controls={!frigateControls}
+              playsInline
+              muted={muted}
+              onClick={
+                isDesktop
+                  ? () => {
+                      if (zoomScale == 1.0) onPlayPause(!isPlaying);
+                    }
+                  : undefined
+              }
+              onVolumeChange={() => {
+                setVolume(videoRef.current?.volume ?? 1.0, true);
+                if (!frigateControls) {
+                  setMuted(videoRef.current?.muted);
+                }
+              }}
+              onPlay={() => {
+                setIsPlaying(true);
+
+                if (isMobile) {
+                  setControls(true);
+                  setMobileCtrlTimeout(
+                    setTimeout(() => setControls(false), 4000),
+                  );
+                }
+              }}
+              onPlaying={onPlaying}
+              onPause={() => {
+                setIsPlaying(false);
+                clearTimeout(bufferTimeout);
+
+                if (isMobile && mobileCtrlTimeout) {
+                  clearTimeout(mobileCtrlTimeout);
+                }
+              }}
+              onWaiting={() => {
+                if (onError != undefined) {
+                  if (videoRef.current?.paused) {
+                    return;
+                  }
+
+                  setBufferTimeout(
+                    setTimeout(() => {
+                      if (
+                        document.visibilityState === "visible" &&
+                        videoRef.current
+                      ) {
+                        onError("stalled");
+                      }
+                    }, 3000),
+                  );
+                }
+              }}
+              onProgress={() => {
+                if (onError != undefined) {
+                  if (videoRef.current?.paused) {
+                    return;
+                  }
+
+                  if (bufferTimeout) {
+                    clearTimeout(bufferTimeout);
+                    setBufferTimeout(undefined);
+                  }
+                }
+              }}
+              onTimeUpdate={() => {
+                if (!onTimeUpdate) {
+                  return;
+                }
+
+                const frameTime = getVideoTime();
+
+                if (frameTime) {
+                  onTimeUpdate(frameTime);
+                }
+              }}
+              onLoadedData={() => {
+                onPlayerLoaded?.();
+                handleLoadedMetadata();
+
+                if (videoRef.current) {
+                  if (playbackRate) {
+                    videoRef.current.playbackRate = playbackRate;
+                  }
+
+                  if (volume) {
+                    videoRef.current.volume = volume;
+                  }
+                }
+              }}
+              onEnded={() => {
+                if (onClipEnded) {
+                  onClipEnded(getVideoTime() ?? 0);
+                }
+              }}
+              onError={(e) => {
+                if (
+                  !hlsRef.current &&
+                  // @ts-expect-error code does exist
+                  unsupportedErrorCodes.includes(e.target.error.code) &&
+                  videoRef.current
+                ) {
+                  setLoadedMetadata(false);
+                  setUseHlsCompat(true);
+                } else {
+                  toast.error(
+                    // @ts-expect-error code does exist
+                    `Failed to play recordings (error ${e.target.error.code}): ${e.target.error.message}`,
+                    {
+                      position: "top-center",
+                    },
+                  );
+                }
+              }}
+            />
+          </div>
+        </TransformComponent>
+      </TransformWrapper>
+    </div>
   );
 }

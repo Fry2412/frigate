@@ -65,6 +65,10 @@ export class DynamicVideoController {
     this.playerController.pause();
   }
 
+  setPlaybackRate(rate: number) {
+    this.playerController.playbackRate = rate;
+  }
+
   isPlaying(): boolean {
     return !this.playerController.paused && !this.playerController.ended;
   }

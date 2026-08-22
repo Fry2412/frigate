@@ -24,6 +24,7 @@ import {
   ReviewFilter,
   ReviewSegment,
   ReviewSummary,
+  TimelineZoomDirection,
   ZoomLevel,
 } from "@/types/review";
 import { getChunkedTimeDay } from "@/utils/timelineUtil";
@@ -267,16 +268,16 @@ export function RecordingView({
   const [isPlaybackPlaying, setIsPlaybackPlaying] = useState(true);
 
   const synchronizeMulticam = useCallback(
-    (timestamp: number, playing: boolean) => {
+    (timestamp: number, playing: boolean, sourceCamera?: string) => {
       Object.entries(multicamControllerRefs.current).forEach(
         ([camera, controller]) => {
-          if (camera !== mainCamera) {
+          if (camera !== sourceCamera) {
             controller.synchronizeToTimestamp(timestamp, playing);
           }
         },
       );
     },
-    [mainCamera],
+    [],
   );
 
   const handleMasterTimestampUpdate = useCallback(
@@ -289,18 +290,25 @@ export function RecordingView({
       synchronizeMulticam(
         timestamp,
         mainControllerRef.current?.isPlaying() ?? isPlaybackPlaying,
+        mainCamera,
       );
     },
-    [isPlaybackPlaying, synchronizeMulticam],
+    [isPlaybackPlaying, mainCamera, synchronizeMulticam],
   );
 
   const handlePlaybackStateChange = useCallback(
-    (playing: boolean) => {
+    (playing: boolean, sourceCamera: string = mainCamera) => {
       setIsPlaybackPlaying(playing);
-      synchronizeMulticam(currentTime, playing);
+      synchronizeMulticam(currentTime, playing, sourceCamera);
     },
-    [currentTime, synchronizeMulticam],
+    [currentTime, mainCamera, synchronizeMulticam],
   );
+
+  const handlePlaybackRateChange = useCallback((rate: number) => {
+    Object.values(multicamControllerRefs.current).forEach((controller) =>
+      controller.setPlaybackRate(rate),
+    );
+  }, []);
 
   const updateSelectedSegment = useCallback(
     (currentTime: number, updateStartTime: boolean) => {
@@ -926,6 +934,7 @@ export function RecordingView({
                   fullscreen={fullscreen}
                   onTimestampUpdate={handleMasterTimestampUpdate}
                   onPlaybackStateChange={handlePlaybackStateChange}
+                  onPlaybackRateChange={handlePlaybackRateChange}
                   onClipEnded={onClipEnded}
                   onSeekToTime={manuallySetCurrentTime}
                   onControllerReady={(controller) => {
@@ -966,17 +975,16 @@ export function RecordingView({
                           exportMode != "select" &&
                           debugReplayMode != "select"
                         }
-                        fullscreen={camera === mainCamera && fullscreen}
+                        fullscreen={fullscreen}
                         onTimestampUpdate={
                           camera === mainCamera
                             ? handleMasterTimestampUpdate
                             : undefined
                         }
-                        onPlaybackStateChange={
-                          camera === mainCamera
-                            ? handlePlaybackStateChange
-                            : undefined
+                        onPlaybackStateChange={(playing) =>
+                          handlePlaybackStateChange(playing, camera)
                         }
+                        onPlaybackRateChange={handlePlaybackRateChange}
                         onClipEnded={
                           camera === mainCamera ? onClipEnded : undefined
                         }
@@ -992,18 +1000,14 @@ export function RecordingView({
                           exportMode == "timeline" ||
                           debugReplayMode == "timeline"
                         }
-                        supportsFullscreen={
-                          camera === mainCamera && supportsFullScreen
-                        }
+                        supportsFullscreen={supportsFullScreen}
                         setFullResolution={
                           camera === mainCamera
                             ? setFullResolution
                             : ignoreFullResolution
                         }
                         toggleFullscreen={toggleFullscreen}
-                        containerRef={
-                          camera === mainCamera ? mainLayoutRef : undefined
-                        }
+                        containerRef={mainLayoutRef}
                       />
                     </div>
                   ))}
@@ -1075,6 +1079,8 @@ export function RecordingView({
                 : "timeline") ?? "timeline"
             }
             timeRange={timeRange}
+            selectedCameras={multicamCameras}
+            reviewItems={reviewItems ?? []}
             mainCameraReviewItems={mainCameraReviewItems}
             activeReviewItem={activeReviewItem}
             currentTime={currentTime}
@@ -1108,6 +1114,8 @@ type TimelineProps = {
   mainCamera: string;
   timelineType: TimelineType;
   timeRange: TimeRange;
+  selectedCameras: string[];
+  reviewItems: ReviewSegment[];
   mainCameraReviewItems: ReviewSegment[];
   activeReviewItem?: ReviewSegment;
   currentTime: number;
@@ -1125,6 +1133,8 @@ function Timeline({
   mainCamera,
   timelineType,
   timeRange,
+  selectedCameras,
+  reviewItems,
   mainCameraReviewItems,
   activeReviewItem,
   currentTime,
@@ -1139,6 +1149,10 @@ function Timeline({
   const { t } = useTranslation(["views/events"]);
   const internalTimelineRef = useRef<HTMLDivElement>(null);
   const selectedTimelineRef = timelineRef || internalTimelineRef;
+  const timelineCameras = selectedCameras.length
+    ? selectedCameras
+    : [mainCamera];
+  const isMulticamTimeline = timelineCameras.length > 1;
 
   // timeline interaction
 
@@ -1189,25 +1203,33 @@ function Timeline({
   const alignedAfter = alignStartDateToTimeline(timeRange.after);
   const alignedBefore = alignEndDateToTimeline(timeRange.before);
 
-  const { data: motionData, isLoading } = useSWR<MotionData[]>([
-    "review/activity/motion",
-    {
-      before: alignedBefore,
-      after: alignedAfter,
-      scale: Math.round(zoomSettings.segmentDuration / 2),
-      cameras: mainCamera,
-    },
-  ]);
+  const { data: motionData, isLoading } = useSWR<MotionData[]>(
+    !isMulticamTimeline
+      ? [
+          "review/activity/motion",
+          {
+            before: alignedBefore,
+            after: alignedAfter,
+            scale: Math.round(zoomSettings.segmentDuration / 2),
+            cameras: mainCamera,
+          },
+        ]
+      : null,
+  );
 
-  const { data: noRecordings } = useSWR<RecordingSegment[]>([
-    "recordings/unavailable",
-    {
-      before: alignedBefore,
-      after: alignedAfter,
-      scale: Math.round(zoomSettings.segmentDuration),
-      cameras: mainCamera,
-    },
-  ]);
+  const { data: noRecordings } = useSWR<RecordingSegment[]>(
+    !isMulticamTimeline
+      ? [
+          "recordings/unavailable",
+          {
+            before: alignedBefore,
+            after: alignedAfter,
+            scale: Math.round(zoomSettings.segmentDuration),
+            cameras: mainCamera,
+          },
+        ]
+      : null,
+  );
 
   const [exportStart, setExportStartTime] = useState<number>(0);
   const [exportEnd, setExportEndTime] = useState<number>(0);
@@ -1233,14 +1255,18 @@ function Timeline({
         isDesktop
           ? cn(
               timelineType == "timeline"
-                ? "w-[100px] flex-shrink-0"
+                ? isMulticamTimeline
+                  ? "min-w-[120px] w-[min(18vw,180px)] flex-shrink-0"
+                  : "w-[100px] flex-shrink-0"
                 : timelineType == "detail"
                   ? "min-w-[20rem] max-w-[30%] flex-shrink-0 flex-grow-0 basis-[30rem] md:min-w-[20rem] md:max-w-[25%] lg:min-w-[30rem] lg:max-w-[33%]"
                   : "w-80 flex-shrink-0",
             )
           : cn(
               timelineType == "timeline"
-                ? "portrait:flex-grow landscape:w-[100px] landscape:flex-shrink-0"
+                ? isMulticamTimeline
+                  ? "portrait:flex-grow landscape:min-w-[120px] landscape:w-[min(30vw,180px)] landscape:flex-shrink-0"
+                  : "portrait:flex-grow landscape:w-[100px] landscape:flex-shrink-0"
                 : timelineType == "detail"
                   ? "portrait:flex-grow landscape:w-[19rem] landscape:flex-shrink-0"
                   : "portrait:flex-grow landscape:w-[19rem] landscape:flex-shrink-0",
@@ -1260,7 +1286,34 @@ function Timeline({
         </>
       )}
       {timelineType == "timeline" ? (
-        !isLoading ? (
+        isMulticamTimeline ? (
+          <MultiCameraMotionTimeline
+            cameras={timelineCameras}
+            reviewItems={reviewItems}
+            timelineRef={selectedTimelineRef}
+            contentRef={contentRef}
+            segmentDuration={zoomSettings.segmentDuration}
+            timestampSpread={zoomSettings.timestampSpread}
+            timelineStart={timeRange.before}
+            timelineEnd={timeRange.after}
+            alignedAfter={alignedAfter}
+            alignedBefore={alignedBefore}
+            showHandlebar={exportRange == undefined}
+            showExportHandles={exportRange != undefined}
+            exportStartTime={exportRange?.after}
+            exportEndTime={exportRange?.before}
+            setExportStartTime={setExportStartTime}
+            setExportEndTime={setExportEndTime}
+            handlebarTime={currentTime}
+            setHandlebarTime={setCurrentTime}
+            onHandlebarDraggingChange={(scrubbing) => setScrubbing(scrubbing)}
+            isZooming={isZooming}
+            zoomDirection={zoomDirection}
+            onZoomChange={handleZoomChange}
+            possibleZoomLevels={possibleZoomLevels}
+            currentZoomLevel={currentZoomLevel}
+          />
+        ) : !isLoading ? (
           <MotionReviewTimeline
             timelineRef={selectedTimelineRef}
             segmentDuration={zoomSettings.segmentDuration}
@@ -1333,6 +1386,280 @@ function Timeline({
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+type MultiCameraMotionTimelineProps = {
+  cameras: string[];
+  reviewItems: ReviewSegment[];
+  timelineRef: MutableRefObject<HTMLDivElement | null>;
+  contentRef: MutableRefObject<HTMLDivElement | null>;
+  segmentDuration: number;
+  timestampSpread: number;
+  timelineStart: number;
+  timelineEnd: number;
+  alignedAfter: number;
+  alignedBefore: number;
+  showHandlebar: boolean;
+  showExportHandles: boolean;
+  exportStartTime?: number;
+  exportEndTime?: number;
+  setExportStartTime: React.Dispatch<React.SetStateAction<number>>;
+  setExportEndTime: React.Dispatch<React.SetStateAction<number>>;
+  handlebarTime: number;
+  setHandlebarTime: React.Dispatch<React.SetStateAction<number>>;
+  onHandlebarDraggingChange: (isDragging: boolean) => void;
+  isZooming: boolean;
+  zoomDirection: TimelineZoomDirection;
+  onZoomChange: (newZoomLevel: number) => void;
+  possibleZoomLevels: ZoomLevel[];
+  currentZoomLevel: number;
+};
+
+function MultiCameraMotionTimeline({
+  cameras,
+  reviewItems,
+  timelineRef,
+  contentRef,
+  segmentDuration,
+  timestampSpread,
+  timelineStart,
+  timelineEnd,
+  alignedAfter,
+  alignedBefore,
+  showHandlebar,
+  showExportHandles,
+  exportStartTime,
+  exportEndTime,
+  setExportStartTime,
+  setExportEndTime,
+  handlebarTime,
+  setHandlebarTime,
+  onHandlebarDraggingChange,
+  isZooming,
+  zoomDirection,
+  onZoomChange,
+  possibleZoomLevels,
+  currentZoomLevel,
+}: MultiCameraMotionTimelineProps) {
+  const laneRefs = useRef<
+    Record<string, MutableRefObject<HTMLDivElement | null>>
+  >({});
+  const isSyncingScroll = useRef(false);
+
+  const getLaneRef = useCallback(
+    (camera: string, index: number) => {
+      if (index === 0) {
+        return timelineRef;
+      }
+
+      if (!laneRefs.current[camera]) {
+        laneRefs.current[camera] = { current: null };
+      }
+
+      return laneRefs.current[camera];
+    },
+    [timelineRef],
+  );
+
+  useEffect(() => {
+    const refs = cameras.map((camera, index) =>
+      getLaneRef(camera, index),
+    );
+
+    const handleScroll = (event: Event) => {
+      if (isSyncingScroll.current) {
+        return;
+      }
+
+      const source = event.currentTarget as HTMLDivElement;
+      isSyncingScroll.current = true;
+      refs.forEach((ref) => {
+        if (ref.current && ref.current !== source) {
+          ref.current.scrollTop = source.scrollTop;
+        }
+      });
+
+      window.requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
+    };
+
+    refs.forEach((ref) => {
+      ref.current?.addEventListener("scroll", handleScroll, {
+        passive: true,
+      });
+    });
+
+    return () => {
+      refs.forEach((ref) => {
+        ref.current?.removeEventListener("scroll", handleScroll);
+      });
+    };
+  }, [cameras, getLaneRef]);
+
+  return (
+    <div
+      className="grid size-full min-h-0 min-w-0 divide-x divide-border"
+      style={{
+        gridTemplateColumns: `repeat(${cameras.length}, minmax(0, 1fr))`,
+      }}
+    >
+      {cameras.map((camera, index) => (
+        <MultiCameraMotionTimelineLane
+          key={camera}
+          camera={camera}
+          index={index}
+          reviewItems={reviewItems}
+          timelineRef={getLaneRef(camera, index)}
+          contentRef={contentRef}
+          segmentDuration={segmentDuration}
+          timestampSpread={timestampSpread}
+          timelineStart={timelineStart}
+          timelineEnd={timelineEnd}
+          alignedAfter={alignedAfter}
+          alignedBefore={alignedBefore}
+          showHandlebar={index === 0 && showHandlebar}
+          showExportHandles={index === 0 && showExportHandles}
+          exportStartTime={exportStartTime}
+          exportEndTime={exportEndTime}
+          setExportStartTime={setExportStartTime}
+          setExportEndTime={setExportEndTime}
+          handlebarTime={handlebarTime}
+          setHandlebarTime={setHandlebarTime}
+          onHandlebarDraggingChange={
+            index === 0 ? onHandlebarDraggingChange : undefined
+          }
+          isZooming={index === 0 && isZooming}
+          zoomDirection={index === 0 ? zoomDirection : null}
+          onZoomChange={index === 0 ? onZoomChange : undefined}
+          possibleZoomLevels={index === 0 ? possibleZoomLevels : undefined}
+          currentZoomLevel={index === 0 ? currentZoomLevel : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
+type MultiCameraMotionTimelineLaneProps = {
+  camera: string;
+  index: number;
+  reviewItems: ReviewSegment[];
+  timelineRef: MutableRefObject<HTMLDivElement | null>;
+  contentRef: MutableRefObject<HTMLDivElement | null>;
+  segmentDuration: number;
+  timestampSpread: number;
+  timelineStart: number;
+  timelineEnd: number;
+  alignedAfter: number;
+  alignedBefore: number;
+  showHandlebar: boolean;
+  showExportHandles: boolean;
+  exportStartTime?: number;
+  exportEndTime?: number;
+  setExportStartTime: React.Dispatch<React.SetStateAction<number>>;
+  setExportEndTime: React.Dispatch<React.SetStateAction<number>>;
+  handlebarTime: number;
+  setHandlebarTime: React.Dispatch<React.SetStateAction<number>>;
+  onHandlebarDraggingChange?: (isDragging: boolean) => void;
+  isZooming: boolean;
+  zoomDirection: TimelineZoomDirection;
+  onZoomChange?: (newZoomLevel: number) => void;
+  possibleZoomLevels?: ZoomLevel[];
+  currentZoomLevel?: number;
+};
+
+function MultiCameraMotionTimelineLane({
+  camera,
+  index,
+  reviewItems,
+  timelineRef,
+  contentRef,
+  segmentDuration,
+  timestampSpread,
+  timelineStart,
+  timelineEnd,
+  alignedAfter,
+  alignedBefore,
+  showHandlebar,
+  showExportHandles,
+  exportStartTime,
+  exportEndTime,
+  setExportStartTime,
+  setExportEndTime,
+  handlebarTime,
+  setHandlebarTime,
+  onHandlebarDraggingChange,
+  isZooming,
+  zoomDirection,
+  onZoomChange,
+  possibleZoomLevels,
+  currentZoomLevel,
+}: MultiCameraMotionTimelineLaneProps) {
+  const { data: motionData, isLoading } = useSWR<MotionData[]>([
+    "review/activity/motion",
+    {
+      before: alignedBefore,
+      after: alignedAfter,
+      scale: Math.round(segmentDuration / 2),
+      cameras: camera,
+    },
+  ]);
+
+  const { data: noRecordings } = useSWR<RecordingSegment[]>([
+    "recordings/unavailable",
+    {
+      before: alignedBefore,
+      after: alignedAfter,
+      scale: Math.round(segmentDuration),
+      cameras: camera,
+    },
+  ]);
+
+  const cameraReviewItems = useMemo(
+    () => reviewItems.filter((review) => review.camera === camera),
+    [camera, reviewItems],
+  );
+
+  return (
+    <div className="relative min-h-0 min-w-0 overflow-hidden bg-secondary">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 truncate bg-secondary/80 px-1 text-[8px] leading-3 text-primary md:text-[9px]">
+        <CameraNameLabel camera={camera} />
+      </div>
+      <MotionReviewTimeline
+        timelineRef={timelineRef}
+        segmentDuration={segmentDuration}
+        timestampSpread={timestampSpread}
+        timelineStart={timelineStart}
+        timelineEnd={timelineEnd}
+        showHandlebar={showHandlebar}
+        showExportHandles={showExportHandles}
+        exportStartTime={exportStartTime}
+        exportEndTime={exportEndTime}
+        setExportStartTime={setExportStartTime}
+        setExportEndTime={setExportEndTime}
+        handlebarTime={handlebarTime}
+        setHandlebarTime={setHandlebarTime}
+        events={cameraReviewItems}
+        motion_events={motionData ?? []}
+        noRecordingRanges={noRecordings ?? []}
+        contentRef={contentRef}
+        onHandlebarDraggingChange={onHandlebarDraggingChange}
+        isZooming={isZooming}
+        zoomDirection={zoomDirection}
+        onZoomChange={onZoomChange}
+        possibleZoomLevels={possibleZoomLevels}
+        currentZoomLevel={currentZoomLevel}
+      />
+      {isLoading && (
+        <div className="pointer-events-none absolute inset-0 z-20 bg-secondary/50">
+          <Skeleton className="size-full rounded-none" />
+        </div>
+      )}
+      {index > 0 && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-border" />
       )}
     </div>
   );
