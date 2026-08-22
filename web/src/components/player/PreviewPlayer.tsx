@@ -307,7 +307,7 @@ function PreviewVideoPlayer({
       />
       {isVisible && (
         <video
-          ref={previewRef}
+          ref={setPreviewRef}
           className={`absolute size-full ${currentHourFrame ? "invisible" : "visible"}`}
           preload="auto"
           autoPlay
