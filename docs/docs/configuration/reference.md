@@ -147,6 +147,22 @@ auth:
   # NOTE: changing this value will not automatically update password hashes, you
   #       will need to change each user password for it to apply
   hash_iterations: 600000
+  # Optional: OpenID Connect login
+  oidc:
+    enabled: False
+    provider_name: SSO
+    issuer_url: https://auth.example.com/application/o/frigate/
+    client_id: frigate
+    # client_secret is omitted from the API response and can use a Docker secret
+    # client_secret: "{FRIGATE_OIDC_CLIENT_SECRET}"
+    redirect_uri: None
+    scopes:
+      - openid
+      - profile
+      - email
+    username_claim: preferred_username
+    auto_create_users: False
+    default_role: viewer
 
 # Optional: model modifications
 # NOTE: The default values are for the EdgeTPU detector.

@@ -152,6 +152,9 @@ def config(request: Request):
     # remove the proxy secret
     config["proxy"].pop("auth_secret", None)
 
+    # remove the OIDC client secret
+    config.get("auth", {}).get("oidc", {}).pop("client_secret", None)
+
     # remove genai api keys
     for genai_name, genai_cfg in config.get("genai", {}).items():
         if isinstance(genai_cfg, dict):

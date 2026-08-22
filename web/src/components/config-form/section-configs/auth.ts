@@ -15,7 +15,7 @@ const auth: SectionConfigOverrides = {
       "cookie_secure",
       "session_length",
       "refresh_time",
-      "native_oauth_url",
+      "oidc",
       "failed_login_rate_limit",
       "trusted_proxies",
       "hash_iterations",
@@ -27,6 +27,7 @@ const auth: SectionConfigOverrides = {
       "cookie_secure",
       "session_length",
       "refresh_time",
+      "oidc",
       "failed_login_rate_limit",
       "trusted_proxies",
       "hash_iterations",
@@ -36,8 +37,13 @@ const auth: SectionConfigOverrides = {
       reset_admin_password: {
         "ui:widget": "switch",
       },
-      native_oauth_url: {
-        "ui:options": { size: "lg" },
+      oidc: {
+        enabled: {
+          "ui:widget": "switch",
+        },
+        client_secret: {
+          "ui:widget": "password",
+        },
       },
       failed_login_rate_limit: {
         "ui:options": { size: "md" },

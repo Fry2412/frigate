@@ -50,6 +50,65 @@ auth:
 
 Constructing secure passwords and managing them properly is important. Frigate requires a minimum length of 12 characters. For guidance on password standards see [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html). To learn what makes a password truly secure, read this [article](https://medium.com/peerio/how-to-build-a-billion-dollar-password-3d92568d9277).
 
+## OpenID Connect / SSO
+
+Frigate can optionally offer a generic OpenID Connect login in addition to its native username and password login. This works with providers such as Authentik. The native login remains available, and the SSO flow only starts after selecting the **Login with SSO** button.
+
+SSO users are matched to Frigate users by the configured `username_claim` (default: `preferred_username`). The user's role is always read from Frigate's own user database; provider groups or claims cannot grant Frigate permissions. Unknown users are rejected by default. If `auto_create_users` is enabled, they are created with `default_role`.
+
+The callback URL to register at the provider is:
+
+```text
+https://frigate.example.com/api/auth/oidc/callback
+```
+
+When Frigate is mounted below a base path, include that path, for example `https://example.com/frigate/api/auth/oidc/callback`.
+
+<ConfigTabs>
+<TabItem value="ui">
+
+Navigate to <NavPath path="Settings > System > Authentication" /> and expand **OpenID Connect**. Enable it and configure the issuer URL, client ID, and optional client secret. The client secret may also be supplied through Docker secrets or environment variables.
+
+</TabItem>
+<TabItem value="yaml">
+
+```yaml
+auth:
+  enabled: true
+  oidc:
+    enabled: true
+    provider_name: Authentik
+    issuer_url: https://auth.example.com/application/o/frigate/
+    client_id: frigate
+    # Optional for confidential clients. PKCE is used for every login.
+    client_secret: "{FRIGATE_OIDC_CLIENT_SECRET}"
+    username_claim: preferred_username
+    auto_create_users: false
+    default_role: viewer
+    scopes:
+      - openid
+      - profile
+      - email
+```
+
+</TabItem>
+</ConfigTabs>
+
+The same settings can be preconfigured without putting them in the YAML file:
+
+```yaml
+environment:
+  FRIGATE_OIDC_ENABLED: "true"
+  FRIGATE_OIDC_PROVIDER_NAME: Authentik
+  FRIGATE_OIDC_ISSUER_URL: https://auth.example.com/application/o/frigate/
+  FRIGATE_OIDC_CLIENT_ID: frigate
+  FRIGATE_OIDC_CLIENT_SECRET: your-client-secret
+```
+
+`FRIGATE_OIDC_REDIRECT_URI` can be set when the public callback URL cannot be derived from the incoming proxy headers. Otherwise Frigate derives it automatically, including `FRIGATE_BASE_PATH`.
+
+The provider client must allow the Authorization Code flow with PKCE and the exact callback URL. For Authentik, configure the application to expose the `preferred_username` claim, or change `username_claim` to a claim that matches the existing Frigate username.
+
 ## Login failure rate limiting
 
 In order to limit the risk of brute force attacks, rate limiting is available for login failures. This is implemented with SlowApi, and the string notation for valid values is available in [the documentation](https://limits.readthedocs.io/en/stable/quickstart.html#examples).

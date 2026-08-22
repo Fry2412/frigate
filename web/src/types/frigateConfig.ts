@@ -402,6 +402,17 @@ export interface FrigateConfig {
 
   auth: {
     enabled: boolean;
+    oidc?: {
+      enabled: boolean;
+      provider_name: string;
+      issuer_url?: string;
+      client_id?: string;
+      redirect_uri?: string;
+      scopes: string[];
+      username_claim: string;
+      auto_create_users: boolean;
+      default_role: string;
+    };
     roles: {
       [roleName: string]: string[];
     };

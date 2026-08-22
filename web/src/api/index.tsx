@@ -1,4 +1,4 @@
-import { baseUrl } from "./baseUrl";
+import { baseUrl, getLoginUrl } from "./baseUrl";
 import { SWRConfig } from "swr";
 import { WsProvider } from "./WsProvider";
 import axios from "axios";
@@ -31,7 +31,10 @@ export function ApiProvider({ children, options }: ApiProviderType) {
             [401, 302, 307].includes(error.response.status)
           ) {
             // redirect to the login page if not already there
-            const loginPage = error.response.headers.get("location") ?? "login";
+            const location = error.response.headers.get("location");
+            const loginPage = location?.endsWith("/login")
+              ? getLoginUrl()
+              : (location ?? getLoginUrl());
             if (window.location.href !== loginPage && !isRedirectingToLogin()) {
               setRedirectingToLogin(true);
               window.location.href = loginPage;

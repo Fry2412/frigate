@@ -2,6 +2,7 @@ import { useContext, useEffect } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { AuthContext } from "@/context/auth-context";
 import ActivityIndicator from "../indicators/activity-indicator";
+import { getLoginUrl } from "@/api/baseUrl";
 import {
   isRedirectingToLogin,
   setRedirectingToLogin,
@@ -24,7 +25,7 @@ export default function ProtectedRoute({
       !isRedirectingToLogin()
     ) {
       setRedirectingToLogin(true);
-      window.location.href = "/login";
+      window.location.href = getLoginUrl();
     }
   }, [auth.isLoading, auth.isAuthenticated, auth.user]);
 

@@ -1,0 +1,53 @@
+name: Feature image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feat/**"
+
+concurrency:
+  group: feature-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and publish feature image
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU and Buildx
+        uses: ./.github/actions/setup
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image name
+        id: lowercaseRepo
+        uses: ASzc/change-string-case-action@v6
+        with:
+          string: ${{ github.repository }}
+
+      - name: Create image tag
+        id: metadata
+        shell: bash
+        run: echo "tag=feature-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push multi-architecture feature image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/main/Dockerfile
+          target: frigate
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:${{ steps.metadata.outputs.tag }}
+          cache-from: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache,mode=max

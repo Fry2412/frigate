@@ -68,6 +68,49 @@ class TestConfig(unittest.TestCase):
         assert frigate_config.detectors["cpu"].type == DetectorTypeEnum.cpu
         assert frigate_config.detectors["cpu"].model.width == 320
 
+    def test_oidc_config_can_be_preconfigured_with_environment(self):
+        with patch.dict(
+            os.environ,
+            {
+                "FRIGATE_OIDC_ENABLED": "true",
+                "FRIGATE_OIDC_PROVIDER_NAME": "Authentik",
+                "FRIGATE_OIDC_ISSUER_URL": "https://auth.example.test/application/o/frigate/",
+                "FRIGATE_OIDC_CLIENT_ID": "frigate",
+                "FRIGATE_OIDC_CLIENT_SECRET": "secret",
+            },
+        ):
+            frigate_config = FrigateConfig(**self.minimal)
+
+        assert frigate_config.auth.oidc.enabled is True
+        assert frigate_config.auth.oidc.provider_name == "Authentik"
+        assert frigate_config.auth.oidc.client_id == "frigate"
+        assert frigate_config.auth.oidc.client_secret == "secret"
+
+    def test_oidc_requires_issuer_and_client_id_when_enabled(self):
+        config = {
+            **self.minimal,
+            "auth": {"oidc": {"enabled": True}},
+        }
+
+        with self.assertRaises(ValidationError):
+            FrigateConfig(**config)
+
+    def test_oidc_cannot_be_enabled_with_native_auth_disabled(self):
+        config = {
+            **self.minimal,
+            "auth": {
+                "enabled": False,
+                "oidc": {
+                    "enabled": True,
+                    "issuer_url": "https://auth.example.test/",
+                    "client_id": "frigate",
+                },
+            },
+        }
+
+        with self.assertRaises(ValidationError):
+            FrigateConfig(**config)
+
     @patch("frigate.detectors.detector_config.load_labels")
     def test_detector_custom_model_path(self, mock_labels):
         mock_labels.return_value = {}

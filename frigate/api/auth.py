@@ -12,10 +12,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlencode, urlparse
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from joserfc import jwt
+from joserfc.jwk import KeySet
 from peewee import DoesNotExist
 from slowapi import Limiter
 
@@ -37,6 +40,21 @@ logger = logging.getLogger(__name__)
 # an expiration timestamp (float).
 FIRST_LOAD_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
 _first_load_seen: dict[str, float] = {}
+OIDC_FLOW_COOKIE = "frigate_oidc_flow"
+OIDC_FLOW_TTL_SECONDS = 600
+OIDC_HTTP_TIMEOUT_SECONDS = 10
+OIDC_ALLOWED_ID_TOKEN_ALGORITHMS = {
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+}
+_oidc_cache: dict[str, tuple[float, dict]] = {}
 
 
 def require_admin_by_default():
@@ -60,6 +78,9 @@ def require_admin_by_default():
         # Public auth endpoints (allow_public)
         "/auth",
         "/auth/first_time_login",
+        "/auth/oidc/config",
+        "/auth/oidc/login",
+        "/auth/oidc/callback",
         "/login",
         "/logout",
         # Authenticated user endpoints (allow_any_authenticated)
@@ -210,6 +231,251 @@ def allow_any_authenticated():
 
 
 router = APIRouter(tags=[Tags.auth])
+
+
+@router.get("/auth/oidc/config", dependencies=[Depends(allow_public())])
+def oidc_public_config(request: Request):
+    """Return only the OIDC information needed to render the login page."""
+    oidc_config = request.app.frigate_config.auth.oidc
+    return JSONResponse(
+        content={
+            "enabled": oidc_config.enabled,
+            "provider_name": oidc_config.provider_name,
+        }
+    )
+
+
+@router.get("/auth/oidc/login", dependencies=[Depends(allow_public())])
+def oidc_login(request: Request, return_to: Optional[str] = None):
+    """Start an Authorization Code + PKCE OpenID Connect login flow."""
+    oidc_config = request.app.frigate_config.auth.oidc
+    if (
+        not oidc_config.enabled
+        or not oidc_config.issuer_url
+        or not oidc_config.client_id
+    ):
+        raise HTTPException(status_code=404, detail="OpenID Connect is not enabled")
+
+    try:
+        discovery = _oidc_discovery(str(oidc_config.issuer_url))
+    except Exception:
+        logger.exception("Unable to load OpenID Connect discovery metadata")
+        return _oidc_login_error(request, "provider_unavailable")
+
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+        .decode()
+        .rstrip("=")
+    )
+    now = int(time.time())
+    flow_token = jwt.encode(
+        {"alg": "HS256"},
+        {
+            "state": state,
+            "nonce": nonce,
+            "code_verifier": code_verifier,
+            "return_to": _safe_return_path(return_to),
+            "iat": now,
+            "exp": now + OIDC_FLOW_TTL_SECONDS,
+        },
+        request.app.jwt_token,
+    )
+
+    params = {
+        "response_type": "code",
+        "client_id": str(oidc_config.client_id),
+        "redirect_uri": _oidc_redirect_uri(request),
+        "scope": " ".join(oidc_config.scopes),
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    response = RedirectResponse(
+        url=f"{discovery['authorization_endpoint']}?{urlencode(params)}",
+        status_code=303,
+    )
+    response.set_cookie(
+        OIDC_FLOW_COOKIE,
+        flow_token,
+        max_age=OIDC_FLOW_TTL_SECONDS,
+        httponly=True,
+        secure=request.app.frigate_config.auth.cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@router.get("/auth/oidc/callback", dependencies=[Depends(allow_public())])
+def oidc_callback(
+    request: Request, code: Optional[str] = None, state: Optional[str] = None
+):
+    """Validate an OIDC callback and issue the normal Frigate session cookie."""
+    oidc_config = request.app.frigate_config.auth.oidc
+    flow_cookie = request.cookies.get(OIDC_FLOW_COOKIE)
+    if not oidc_config.enabled or not code or not state or not flow_cookie:
+        return _oidc_login_error(request, "invalid_callback")
+
+    try:
+        flow = jwt.decode(flow_cookie, request.app.jwt_token, algorithms=["HS256"])
+        jwt.JWTClaimsRegistry(
+            leeway=30,
+            exp={"essential": True},
+            iat={"essential": True},
+        ).validate(flow.claims)
+        if not secrets.compare_digest(str(flow.claims.get("state", "")), state):
+            raise ValueError("OIDC state mismatch")
+
+        discovery = _oidc_discovery(str(oidc_config.issuer_url))
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": _oidc_redirect_uri(request),
+            "client_id": str(oidc_config.client_id),
+            "code_verifier": str(flow.claims["code_verifier"]),
+        }
+        if oidc_config.client_secret:
+            token_data["client_secret"] = str(oidc_config.client_secret)
+        token_response = requests.post(
+            discovery["token_endpoint"],
+            data=token_data,
+            headers={"Accept": "application/json"},
+            timeout=OIDC_HTTP_TIMEOUT_SECONDS,
+        )
+        token_response.raise_for_status()
+        token_payload = token_response.json()
+        if not isinstance(token_payload, dict):
+            raise ValueError("OIDC token response was not a JSON object")
+        id_token = token_payload.get("id_token")
+        if not id_token:
+            raise ValueError("OIDC token response did not contain an ID token")
+
+        jwks = _oidc_get_json(discovery["jwks_uri"])
+        advertised_algorithms = discovery.get(
+            "id_token_signing_alg_values_supported", ["RS256"]
+        )
+        if isinstance(advertised_algorithms, str):
+            advertised_algorithms = [advertised_algorithms]
+        provider_algorithms = set(advertised_algorithms)
+        allowed_algorithms = list(
+            provider_algorithms & OIDC_ALLOWED_ID_TOKEN_ALGORITHMS
+        )
+        if not allowed_algorithms:
+            raise ValueError(
+                "OIDC provider does not advertise a supported signing algorithm"
+            )
+
+        token = jwt.decode(
+            id_token,
+            KeySet.import_key_set(jwks),
+            algorithms=allowed_algorithms,
+        )
+        jwt.JWTClaimsRegistry(
+            leeway=60,
+            iss={"essential": True},
+            sub={"essential": True},
+            aud={"essential": True},
+            exp={"essential": True},
+            iat={"essential": True},
+        ).validate(token.claims)
+
+        issuer = str(token.claims.get("iss", "")).rstrip("/")
+        if issuer != str(oidc_config.issuer_url).rstrip("/"):
+            raise ValueError("OIDC ID token issuer mismatch")
+        audience = token.claims.get("aud")
+        audiences = audience if isinstance(audience, list) else [audience]
+        if not all(isinstance(value, str) for value in audiences):
+            raise ValueError("OIDC ID token audience is invalid")
+        if str(oidc_config.client_id) not in audiences:
+            raise ValueError("OIDC ID token audience mismatch")
+        if len(audiences) > 1 and token.claims.get("azp") != str(
+            oidc_config.client_id
+        ):
+            raise ValueError("OIDC ID token authorized party mismatch")
+        if not secrets.compare_digest(
+            str(token.claims.get("nonce", "")), str(flow.claims.get("nonce", ""))
+        ):
+            raise ValueError("OIDC nonce mismatch")
+
+        identity_claims = token.claims
+        if oidc_config.username_claim not in identity_claims:
+            userinfo_endpoint = discovery.get("userinfo_endpoint")
+            access_token = token_payload.get("access_token")
+            if userinfo_endpoint and access_token:
+                userinfo_response = requests.get(
+                    userinfo_endpoint,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=OIDC_HTTP_TIMEOUT_SECONDS,
+                )
+                userinfo_response.raise_for_status()
+                userinfo_claims = userinfo_response.json()
+                if not isinstance(userinfo_claims, dict) or userinfo_claims.get(
+                    "sub"
+                ) != token.claims.get("sub"):
+                    raise ValueError("OIDC userinfo subject mismatch")
+                identity_claims = userinfo_claims
+
+        username_value = identity_claims.get(oidc_config.username_claim)
+        if not isinstance(username_value, str):
+            raise ValueError("Configured OIDC username claim is missing")
+        username = username_value.strip()
+        if not re.match(r"^[A-Za-z0-9._]+$", username) or len(username) > 30:
+            raise ValueError("OIDC username is not a valid Frigate username")
+
+        try:
+            db_user = User.get_by_id(username)
+        except DoesNotExist:
+            if not oidc_config.auto_create_users:
+                logger.warning(
+                    "OIDC login rejected for unknown Frigate user %s", username
+                )
+                return _oidc_login_error(request, "user_not_provisioned")
+            config_roles = set(request.app.frigate_config.auth.roles.keys())
+            role = (
+                oidc_config.default_role
+                if oidc_config.default_role in config_roles
+                else "viewer"
+            )
+            db_user = User.create(
+                username=username,
+                role=role,
+                password_hash=hash_password(
+                    secrets.token_urlsafe(48),
+                    iterations=request.app.frigate_config.auth.hash_iterations,
+                ),
+                notification_tokens=[],
+            )
+
+        role = db_user.role
+        if role not in request.app.frigate_config.auth.roles:
+            logger.warning(
+                "OIDC user %s has invalid role %s; using viewer", username, role
+            )
+            role = "viewer"
+
+        expiration = int(time.time()) + request.app.frigate_config.auth.session_length
+        encoded_jwt = create_encoded_jwt(
+            username, role, expiration, request.app.jwt_token
+        )
+        response = RedirectResponse(
+            url=_safe_return_path(flow.claims.get("return_to")), status_code=303
+        )
+        set_jwt_cookie(
+            response,
+            request.app.frigate_config.auth.cookie_name,
+            encoded_jwt,
+            expiration,
+            request.app.frigate_config.auth.cookie_secure,
+        )
+        response.delete_cookie(OIDC_FLOW_COOKIE, path="/")
+        return response
+    except Exception:
+        logger.exception("OpenID Connect callback validation failed")
+        return _oidc_login_error(request, "login_failed")
 
 
 @router.get("/auth/first_time_login", dependencies=[Depends(allow_public())])
@@ -412,6 +678,83 @@ def set_jwt_cookie(response: Response, cookie_name, encoded_jwt, expiration, sec
         expires=expiration,
         secure=secure,
     )
+
+
+def _oidc_cache_get(key: str) -> Optional[dict]:
+    cached = _oidc_cache.get(key)
+    if cached is None or cached[0] <= time.time():
+        _oidc_cache.pop(key, None)
+        return None
+    return cached[1]
+
+
+def _oidc_get_json(url: str) -> dict:
+    cached = _oidc_cache_get(url)
+    if cached is not None:
+        return cached
+
+    response = requests.get(url, timeout=OIDC_HTTP_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    value = response.json()
+    if not isinstance(value, dict):
+        raise ValueError("OIDC endpoint returned an invalid JSON document")
+    _oidc_cache[url] = (time.time() + 300, value)
+    return value
+
+
+def _oidc_discovery(issuer_url: str) -> dict:
+    issuer = issuer_url.rstrip("/")
+    discovery = _oidc_get_json(f"{issuer}/.well-known/openid-configuration")
+    if discovery.get("issuer", "").rstrip("/") != issuer:
+        raise ValueError("OIDC discovery issuer does not match configured issuer")
+    for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+        if not discovery.get(key):
+            raise ValueError(f"OIDC discovery document is missing {key}")
+    return discovery
+
+
+def _oidc_redirect_uri(request: Request) -> str:
+    oidc_config = request.app.frigate_config.auth.oidc
+    if oidc_config.redirect_uri:
+        return str(oidc_config.redirect_uri)
+
+    scheme = (
+        request.headers.get("x-forwarded-proto", request.url.scheme)
+        .split(",")[0]
+        .strip()
+    )
+    host = (
+        request.headers.get("x-forwarded-host", request.headers.get("host", ""))
+        .split(",")[0]
+        .strip()
+    )
+    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
+    return f"{scheme}://{host}{ingress_path}/api/auth/oidc/callback"
+
+
+def _safe_return_path(value: Optional[str]) -> str:
+    if not value:
+        return "/"
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc or not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
+def _oidc_login_error(request: Request, message: str) -> RedirectResponse:
+    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
+    response = RedirectResponse(
+        url=f"{ingress_path}/login?{urlencode({'sso_error': message})}",
+        status_code=303,
+    )
+    response.delete_cookie(OIDC_FLOW_COOKIE, path="/")
+    return response
+
+
+def _login_path(request: Request) -> str:
+    """Return a login path that remains valid behind FRIGATE_BASE_PATH."""
+    ingress_path = request.headers.get("x-ingress-path", "").rstrip("/")
+    return f"{ingress_path}/login"
 
 
 async def get_current_user(request: Request):
@@ -647,7 +990,7 @@ def auth(request: Request):
         return success_response
 
     # now apply authentication
-    fail_response.headers["location"] = "/login"
+    fail_response.headers["location"] = _login_path(request)
 
     JWT_COOKIE_NAME = request.app.frigate_config.auth.cookie_name
     JWT_COOKIE_SECURE = request.app.frigate_config.auth.cookie_secure
@@ -791,7 +1134,7 @@ def profile(request: Request):
 )
 def logout(request: Request):
     auth_config: AuthConfig = request.app.frigate_config.auth
-    response = RedirectResponse("/login", status_code=303)
+    response = RedirectResponse(_login_path(request), status_code=303)
     response.delete_cookie(auth_config.cookie_name)
     return response
 

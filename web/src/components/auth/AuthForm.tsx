@@ -26,6 +26,12 @@ import useSWR from "swr";
 import { LuExternalLink } from "react-icons/lu";
 import { useDocDomain } from "@/hooks/use-doc-domain";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+
+type OidcPublicConfig = {
+  enabled: boolean;
+  provider_name: string;
+};
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {}
 
@@ -38,7 +44,25 @@ export function UserAuthForm({ className, ...props }: UserAuthFormProps) {
   // need to use local fetcher because useSWR default fetcher is not set up in this context
   const fetcher = (path: string) => axios.get(path).then((res) => res.data);
   const { data } = useSWR("/auth/first_time_login", fetcher);
+  const { data: oidcConfig } = useSWR<OidcPublicConfig>(
+    "/auth/oidc/config",
+    fetcher,
+  );
   const showFirstTimeLink = data?.admin_first_time_login === true;
+
+  const oidcError = React.useMemo(() => {
+    const error = new URLSearchParams(window.location.search).get("sso_error");
+    if (!error) return null;
+
+    const messages: Record<string, string> = {
+      provider_unavailable: "The SSO provider is currently unavailable.",
+      invalid_callback: "The SSO login response was invalid or expired.",
+      user_not_provisioned:
+        "Your SSO account is not provisioned in Frigate yet.",
+      login_failed: "The SSO login could not be completed.",
+    };
+    return messages[error] || messages.login_failed;
+  }, []);
 
   const formSchema = z.object({
     user: z.string().min(1, t("form.errors.usernameRequired")),
@@ -96,8 +120,27 @@ export function UserAuthForm({ className, ...props }: UserAuthFormProps) {
     }
   };
 
+  const startOidcLogin = () => {
+    const loginPath = new URL("login", baseUrl).pathname;
+    const returnTo =
+      window.location.pathname === loginPath
+        ? new URL(baseUrl).pathname
+        : `${window.location.pathname}${window.location.search}`;
+    const loginUrl = new URL("api/auth/oidc/login", baseUrl);
+    loginUrl.searchParams.set("return_to", returnTo);
+    window.location.assign(loginUrl.toString());
+  };
+
   return (
     <div className={cn("grid gap-6", className)} {...props}>
+      {oidcError && (
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+          role="alert"
+        >
+          {oidcError}
+        </div>
+      )}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <FormField
@@ -146,6 +189,32 @@ export function UserAuthForm({ className, ...props }: UserAuthFormProps) {
           </div>
         </form>
       </Form>
+      {oidcConfig?.enabled && (
+        <>
+          <div className="relative my-1">
+            <Separator />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
+              {t("form.or", {
+                defaultValue: "or",
+                ns: "components/auth",
+              })}
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isLoading}
+            onClick={startOidcLogin}
+            className="w-full"
+          >
+            {t("form.loginWithSso", {
+              defaultValue: "Login with {{provider}}",
+              provider: oidcConfig.provider_name || "SSO",
+              ns: "components/auth",
+            })}
+          </Button>
+        </>
+      )}
       {showFirstTimeLink && (
         <Card className="mt-4 p-4 text-center text-sm">
           <CardContent className="p-2">

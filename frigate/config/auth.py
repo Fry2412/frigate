@@ -1,10 +1,85 @@
+import os
 from typing import Dict, List, Optional
 
 from pydantic import Field, field_validator, model_validator
 
 from .base import FrigateBaseModel
+from .env import EnvString
 
-__all__ = ["AuthConfig"]
+__all__ = ["AuthConfig", "OidcConfig"]
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+class OidcConfig(FrigateBaseModel):
+    enabled: bool = Field(
+        default_factory=lambda: _env_bool("FRIGATE_OIDC_ENABLED"),
+        title="Enable OpenID Connect",
+        description="Show an optional OpenID Connect login alongside native Frigate login.",
+    )
+    provider_name: str = Field(
+        default_factory=lambda: os.environ.get("FRIGATE_OIDC_PROVIDER_NAME", "SSO"),
+        title="Provider name",
+        description="Name displayed on the login button, for example Authentik.",
+        min_length=1,
+        max_length=50,
+    )
+    issuer_url: Optional[EnvString] = Field(
+        default_factory=lambda: os.environ.get("FRIGATE_OIDC_ISSUER_URL"),
+        title="Issuer URL",
+        description="OpenID Connect issuer URL used for provider discovery.",
+    )
+    client_id: Optional[EnvString] = Field(
+        default_factory=lambda: os.environ.get("FRIGATE_OIDC_CLIENT_ID"),
+        title="Client ID",
+        description="OpenID Connect client ID.",
+    )
+    client_secret: Optional[EnvString] = Field(
+        default_factory=lambda: os.environ.get("FRIGATE_OIDC_CLIENT_SECRET"),
+        title="Client secret",
+        description="OpenID Connect client secret. Docker secrets and FRIGATE_ placeholders are supported.",
+    )
+    redirect_uri: Optional[EnvString] = Field(
+        default_factory=lambda: os.environ.get("FRIGATE_OIDC_REDIRECT_URI"),
+        title="Redirect URI",
+        description="Public callback URI. If omitted, Frigate derives it from the incoming request.",
+    )
+    scopes: List[str] = Field(
+        default=["openid", "profile", "email"],
+        title="Scopes",
+        description="OpenID Connect scopes requested from the provider.",
+    )
+    username_claim: str = Field(
+        default="preferred_username",
+        title="Username claim",
+        description="ID token claim mapped to the Frigate username.",
+        min_length=1,
+    )
+    auto_create_users: bool = Field(
+        default=False,
+        title="Automatically create users",
+        description="Create unknown OIDC users in Frigate with the configured default role.",
+    )
+    default_role: str = Field(
+        default="viewer",
+        title="Default role",
+        description="Frigate role assigned when an OIDC user is created automatically.",
+    )
+
+    @model_validator(mode="after")
+    def validate_oidc(self):
+        if self.enabled and (not self.issuer_url or not self.client_id):
+            raise ValueError(
+                "OIDC issuer_url and client_id are required when OIDC is enabled."
+            )
+        if "openid" not in self.scopes:
+            raise ValueError("OIDC scopes must include 'openid'.")
+        return self
 
 
 class AuthConfig(FrigateBaseModel):
@@ -69,6 +144,11 @@ class AuthConfig(FrigateBaseModel):
             "When true the UI may show a help link on the login page informing users how to sign in after an admin password reset. "
         ),
     )
+    oidc: OidcConfig = Field(
+        default_factory=OidcConfig,
+        title="OpenID Connect",
+        description="Optional native OpenID Connect login configuration.",
+    )
 
     @field_validator("roles")
     @classmethod
@@ -101,5 +181,10 @@ class AuthConfig(FrigateBaseModel):
         # Ensure admin and viewer are never overridden
         self.roles["admin"] = []
         self.roles["viewer"] = []
+
+        if self.oidc.enabled and not self.enabled:
+            raise ValueError(
+                "OpenID Connect cannot be enabled while native authentication is disabled."
+            )
 
         return self
