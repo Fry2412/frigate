@@ -1,7 +1,9 @@
-"""Preview apis."""
+"""Preview APIs."""
 
+import bisect
 import logging
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytz
@@ -25,6 +27,40 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=[Tags.preview])
+
+# Preview scrubbing requests can arrive in parallel for several cameras in the
+# multicam view. Avoid repeatedly scanning the shared cache directory for every
+# request while still invalidating the listing as soon as a frame is added or
+# removed.
+_preview_listing_lock = threading.Lock()
+_preview_listing_cache: tuple[int, list[str]] = (-1, [])
+
+
+def _get_preview_frame_listing(preview_dir: str) -> list[str]:
+    """Return a cached, sorted listing of the preview-frame cache."""
+    global _preview_listing_cache
+
+    try:
+        directory_mtime = os.stat(preview_dir).st_mtime_ns
+    except FileNotFoundError:
+        return []
+
+    cached_mtime, files = _preview_listing_cache
+    if directory_mtime == cached_mtime:
+        return files
+
+    with _preview_listing_lock:
+        cached_mtime, files = _preview_listing_cache
+        if directory_mtime == cached_mtime:
+            return files
+
+        files = sorted(
+            entry.name
+            for entry in os.scandir(preview_dir)
+            if entry.is_file()
+        )
+        _preview_listing_cache = (directory_mtime, files)
+        return files
 
 
 @router.get(
@@ -148,19 +184,16 @@ def get_preview_frames_from_cache(camera_name: str, start_ts: float, end_ts: flo
     file_start = f"preview_{camera_name}-"
     start_file = f"{file_start}{start_ts}.{PREVIEW_FRAME_TYPE}"
     end_file = f"{file_start}{end_ts}.{PREVIEW_FRAME_TYPE}"
-    selected_previews = []
+    files = _get_preview_frame_listing(preview_dir)
 
-    for file in sorted(os.listdir(preview_dir)):
-        if not file.startswith(file_start):
-            continue
-
-        if file < start_file:
-            continue
-
-        if file > end_file:
-            break
-
-        selected_previews.append(file)
+    # A camera's frames form a contiguous slice of the sorted listing. The
+    # final prefix check protects against adjacent camera names that happen to
+    # share the same lexical range.
+    left = bisect.bisect_left(files, start_file)
+    right = bisect.bisect_right(files, end_file)
+    selected_previews = [
+        file for file in files[left:right] if file.startswith(file_start)
+    ]
 
     return JSONResponse(
         content=selected_previews,

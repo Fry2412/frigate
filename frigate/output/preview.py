@@ -120,11 +120,13 @@ class FFMpegConverter(threading.Thread):
         config: CameraConfig,
         frame_times: list[float],
         requestor: InterProcessRequestor,
+        keep_last_frame: bool = True,
     ):
         super().__init__(name=f"{config.name}_preview_converter")
         self.config = config
-        self.frame_times = frame_times
+        self.frame_times = sorted(set(frame_times))
         self.requestor = requestor
+        self.keep_last_frame = keep_last_frame
         self.path = os.path.join(
             CLIPS_DIR,
             f"previews/{self.config.name}/{self.frame_times[0]}-{self.frame_times[-1]}.mp4",
@@ -140,6 +142,21 @@ class FFMpegConverter(threading.Thread):
         )
 
     def run(self) -> None:
+        available_frame_times = [
+            frame_time
+            for frame_time in self.frame_times
+            if os.path.isfile(get_cache_image_name(self.config.name, frame_time))
+        ]
+
+        if len(available_frame_times) < 2:
+            logger.warning(
+                "Unable to create preview for %s: fewer than two cached frames are available.",
+                self.config.name,
+            )
+            return
+
+        self.frame_times = available_frame_times
+
         # generate input list
         item_count = len(self.frame_times)
         playlist = []
@@ -159,29 +176,35 @@ class FFMpegConverter(threading.Thread):
                 f"duration {self.frame_times[t_idx + 1] - self.frame_times[t_idx]}"
             )
 
-        try:
-            p = sp.run(
-                self.ffmpeg_cmd.split(" "),
-                input="\n".join(playlist),
-                encoding="ascii",
-                capture_output=True,
-            )
-        except BlockingIOError:
-            logger.warning(
-                f"Failed to create preview for {self.config.name}, retrying..."
-            )
-            time.sleep(2)
-            p = sp.run(
-                self.ffmpeg_cmd.split(" "),
-                input="\n".join(playlist),
-                encoding="ascii",
-                capture_output=True,
-            )
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+
+        p = None
+        for attempt in range(3):
+            try:
+                p = sp.run(
+                    self.ffmpeg_cmd.split(" "),
+                    input="\n".join(playlist),
+                    encoding="ascii",
+                    capture_output=True,
+                )
+            except BlockingIOError:
+                p = None
+
+            if p is not None and p.returncode == 0:
+                break
+
+            if attempt < 2:
+                logger.warning(
+                    "Failed to create preview for %s, retrying (%d/2)...",
+                    self.config.name,
+                    attempt + 1,
+                )
+                time.sleep(2)
 
         start = self.frame_times[0]
         end = self.frame_times[-1]
 
-        if p.returncode == 0:
+        if p is not None and p.returncode == 0 and os.path.isfile(self.path):
             logger.debug("successfully saved preview")
             self.requestor.send_data(
                 INSERT_PREVIEW,
@@ -194,13 +217,21 @@ class FFMpegConverter(threading.Thread):
                     Previews.duration.name: end - start,
                 },
             )
-        else:
-            logger.error(f"Error saving preview for {self.config.name} :: {p.stderr}")
 
-        # unlink files from cache
-        # don't delete last frame as it will be used as first frame in next segment
-        for t in self.frame_times[0:-1]:
-            Path(get_cache_image_name(self.config.name, t)).unlink(missing_ok=True)  # type: ignore[arg-type]
+            # Keep the final frame only for the next live hour. Recovery jobs
+            # for already completed hours can remove every input frame.
+            frames_to_remove = (
+                self.frame_times[:-1] if self.keep_last_frame else self.frame_times
+            )
+            for frame_time in frames_to_remove:
+                Path(get_cache_image_name(self.config.name, frame_time)).unlink(
+                    missing_ok=True
+                )
+        else:
+            stderr = p.stderr if p is not None else "converter could not be started"
+            logger.error("Error saving preview for %s :: %s", self.config.name, stderr)
+            # Do not delete the input frames on failure. They are the only
+            # source from which the missing preview can be retried/recovered.
 
 
 class PreviewRecorder:
@@ -261,7 +292,10 @@ class PreviewRecorder:
             parents=True, exist_ok=True
         )
 
-        # check for existing items in cache
+        # Restore frames from the current hour and retry any incomplete
+        # conversions left by a previous process. Previously, frames from an
+        # older hour were deleted during startup, making a transient FFmpeg or
+        # database failure permanently remove the low-res preview.
         start_ts = (
             datetime.datetime.now(datetime.timezone.utc)
             .replace(minute=0, second=0, microsecond=0)
@@ -269,31 +303,47 @@ class PreviewRecorder:
         )
 
         file_start = f"preview_{config.name}-"
-        start_file = f"{file_start}{start_ts}.webp"
+        current_frame_times: list[float] = []
+        previous_frame_times: dict[int, list[float]] = {}
 
-        for file in sorted(os.listdir(os.path.join(CACHE_DIR, FOLDER_PREVIEW_FRAMES))):
+        for file in os.listdir(os.path.join(CACHE_DIR, FOLDER_PREVIEW_FRAMES)):
             if not file.startswith(file_start):
                 continue
 
-            if file < start_file:
-                os.unlink(os.path.join(PREVIEW_CACHE_DIR, file))
+            if not file.endswith(f".{PREVIEW_FRAME_TYPE}"):
                 continue
 
             try:
                 file_time = file.split("-")[-1][: -(len(PREVIEW_FRAME_TYPE) + 1)]
-
                 if not file_time:
                     continue
-
                 ts = float(file_time)
             except ValueError:
                 continue
 
-            if self.start_time == 0:
-                self.start_time = ts
+            if ts >= start_ts:
+                current_frame_times.append(ts)
+            else:
+                hour_start = int(ts // PREVIEW_SEGMENT_DURATION)
+                previous_frame_times.setdefault(hour_start, []).append(ts)
 
-            self.last_output_time = ts
-            self.output_frames.append(ts)
+        current_frame_times.sort()
+        if current_frame_times:
+            self.start_time = current_frame_times[0]
+            self.last_output_time = current_frame_times[-1]
+            self.output_frames = current_frame_times
+
+        for frame_times in previous_frame_times.values():
+            frame_times.sort()
+            if len(frame_times) < 2:
+                continue
+
+            FFMpegConverter(
+                self.config,
+                frame_times,
+                self.requestor,
+                keep_last_frame=False,
+            ).start()
 
     def reset_frame_cache(self, frame_time: float) -> None:
         self.segment_end = (
@@ -344,7 +394,7 @@ class PreviewRecorder:
 
         return False
 
-    def write_frame_to_cache(self, frame_time: float, frame: np.ndarray) -> None:
+    def write_frame_to_cache(self, frame_time: float, frame: np.ndarray) -> bool:
         # resize yuv frame
         small_frame: np.ndarray = np.zeros(
             (self.out_height * 3 // 2, self.out_width), np.uint8
@@ -361,14 +411,23 @@ class PreviewRecorder:
             small_frame,
             cv2.COLOR_YUV2BGR_I420,
         )
-        cv2.imwrite(
-            get_cache_image_name(self.camera_name, frame_time),
-            small_frame,
-            [
-                int(cv2.IMWRITE_WEBP_QUALITY),
-                PREVIEW_QUALITY_WEBP[self.config.record.preview.quality],
-            ],
-        )
+        cache_path = get_cache_image_name(self.camera_name, frame_time)
+        try:
+            written = cv2.imwrite(
+                cache_path,
+                small_frame,
+                [
+                    int(cv2.IMWRITE_WEBP_QUALITY),
+                    PREVIEW_QUALITY_WEBP[self.config.record.preview.quality],
+                ],
+            )
+        except cv2.error:
+            written = False
+
+        if not written:
+            logger.error("Failed to write preview frame to %s", cache_path)
+
+        return written
 
     def write_data(
         self,
@@ -381,9 +440,10 @@ class PreviewRecorder:
 
         # always write the first frame
         if self.start_time == 0:
-            self.start_time = frame_time
-            self.output_frames.append(frame_time)
-            self.write_frame_to_cache(frame_time, frame)
+            if self.write_frame_to_cache(frame_time, frame):
+                self.start_time = frame_time
+                self.last_output_time = frame_time
+                self.output_frames.append(frame_time)
             return
 
         # check if PREVIEW clip should be generated and cached frames reset
@@ -391,8 +451,8 @@ class PreviewRecorder:
             if len(self.output_frames) > 0:
                 # save last frame to ensure consistent duration
                 if self.config.record:
-                    self.output_frames.append(frame_time)
-                    self.write_frame_to_cache(frame_time, frame)
+                    if self.write_frame_to_cache(frame_time, frame):
+                        self.output_frames.append(frame_time)
 
                 # write the preview if any frames exist for this hour
                 FFMpegConverter(
@@ -409,13 +469,13 @@ class PreviewRecorder:
 
             # include first frame to ensure consistent duration
             if self.config.record.enabled:
-                self.output_frames.append(frame_time)
-                self.write_frame_to_cache(frame_time, frame)
+                if self.write_frame_to_cache(frame_time, frame):
+                    self.output_frames.append(frame_time)
 
             return
         elif self.should_write_frame(current_tracked_objects, motion_boxes, frame_time):
-            self.output_frames.append(frame_time)
-            self.write_frame_to_cache(frame_time, frame)
+            if self.write_frame_to_cache(frame_time, frame):
+                self.output_frames.append(frame_time)
             return
 
     def flag_offline(self, frame_time: float) -> None:

@@ -10,7 +10,6 @@ import useSWR from "swr";
 import { FrigateConfig } from "@/types/frigateConfig";
 import { Preview } from "@/types/preview";
 import { PreviewPlayback } from "@/types/playback";
-import { isCurrentHour } from "@/utils/dateUtil";
 import { baseUrl } from "@/api/baseUrl";
 import { isAndroid, isChrome, isMobile } from "react-device-detect";
 import { TimeRange } from "@/types/timeline";
@@ -48,7 +47,6 @@ export default function PreviewPlayer({
   onControllerReady,
   onClick,
 }: PreviewPlayerProps) {
-  const { t } = useTranslation(["components/player"]);
   const [currentHourFrame, setCurrentHourFrame] = useState<string>();
   const currentPreview = usePreviewForTimeRange(
     cameraPreviews,
@@ -76,29 +74,20 @@ export default function PreviewPlayer({
     );
   }
 
-  if (isCurrentHour(timeRange.before)) {
-    return (
-      <PreviewFramesPlayer
-        className={className}
-        camera={camera}
-        timeRange={timeRange}
-        startTime={startTime}
-        onControllerReady={onControllerReady}
-        onClick={onClick}
-        setCurrentHourFrame={setCurrentHourFrame}
-      />
-    );
-  }
-
+  // The frame cache is also a recovery path while an hourly MP4 is still
+  // being converted or when its database entry is temporarily unavailable.
+  // Restricting this fallback to the current hour made every other gap appear
+  // as a black tile in the multicam view.
   return (
-    <div
-      className={cn(
-        "flex size-full items-center justify-center rounded-lg bg-background_alt text-primary md:rounded-2xl",
-        className,
-      )}
-    >
-      {t("noPreviewFound")}
-    </div>
+    <PreviewFramesPlayer
+      className={className}
+      camera={camera}
+      timeRange={timeRange}
+      startTime={startTime}
+      onControllerReady={onControllerReady}
+      onClick={onClick}
+      setCurrentHourFrame={setCurrentHourFrame}
+    />
   );
 }
 
@@ -473,7 +462,7 @@ type PreviewFramesPlayerProps = {
   startTime?: number;
   onControllerReady: (controller: PreviewController) => void;
   onClick?: () => void;
-  setCurrentHourFrame: (src: string) => void;
+  setCurrentHourFrame: (src: string | undefined) => void;
 };
 function PreviewFramesPlayer({
   className,
@@ -509,8 +498,14 @@ function PreviewFramesPlayer({
   // controlling frames
 
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const [previewElement, setPreviewElement] =
+    useState<HTMLImageElement | null>(null);
+  const setPreviewRef = useCallback((element: HTMLImageElement | null) => {
+    imgRef.current = element;
+    setPreviewElement(element);
+  }, []);
   const controller = useMemo(() => {
-    if (!frameTimes || !imgRef.current) {
+    if (!frameTimes || !previewElement) {
       return undefined;
     }
 
@@ -520,8 +515,7 @@ function PreviewFramesPlayer({
       frameTimes,
       setCurrentHourFrame,
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imgRef, frameTimes, imgRef.current]);
+  }, [camera, frameTimes, previewElement, setCurrentHourFrame]);
 
   // initial state
 
@@ -580,10 +574,14 @@ function PreviewFramesPlayer({
       onClick={onClick}
     >
       <img
-        ref={imgRef}
+        ref={setPreviewRef}
         className={`size-full rounded-lg bg-black object-contain md:rounded-2xl`}
-        loading="lazy"
+        loading="eager"
         onLoad={onImageLoaded}
+        onError={() => {
+          setFirstLoad(false);
+          controller?.frameLoadFailed();
+        }}
       />
       {previewFrames?.length === 0 && (
         <div className="-y-translate-1/2 align-center absolute inset-x-0 top-1/2 rounded-lg bg-background_alt text-center text-primary dark:bg-black md:rounded-2xl">
@@ -600,13 +598,13 @@ class PreviewFramesController extends PreviewController {
   frameTimes: number[];
   seeking: boolean = false;
   private timeToSeek: number | undefined = undefined;
-  private setCurrentFrame: (src: string) => void;
+  private setCurrentFrame: (src: string | undefined) => void;
 
   constructor(
     camera: string,
     imgController: MutableRefObject<HTMLImageElement | null>,
     frameTimes: number[],
-    setCurrentFrame: (src: string) => void,
+    setCurrentFrame: (src: string | undefined) => void,
   ) {
     super(camera);
     this.imgController = imgController;
@@ -614,18 +612,25 @@ class PreviewFramesController extends PreviewController {
     this.setCurrentFrame = setCurrentFrame;
   }
 
+  private getFrameForTimestamp(time: number): number | undefined {
+    return (
+      this.frameTimes.find((frameTime) => time <= frameTime) ??
+      this.frameTimes.at(-1)
+    );
+  }
+
   override scrubToTimestamp(time: number): boolean {
     if (!this.imgController.current) {
       return false;
     }
 
-    const frame = this.frameTimes.find((p) => {
-      return time <= p;
-    });
+    // Use the first frame at or after the requested timestamp. If the
+    // recorder has not written a frame after the timestamp yet (common near
+    // the live edge), keep the last available frame instead of leaving the
+    // preview black.
+    const frame = this.getFrameForTimestamp(time);
 
-    if (!frame) {
-      return false;
-    }
+    if (frame === undefined) return false;
 
     if (this.seeking) {
       this.timeToSeek = frame;
@@ -634,6 +639,8 @@ class PreviewFramesController extends PreviewController {
 
       if (this.imgController.current.src != newSrc) {
         this.imgController.current.src = newSrc;
+        this.seeking = true;
+      } else if (!this.imgController.current.complete) {
         this.seeking = true;
       }
     }
@@ -646,14 +653,16 @@ class PreviewFramesController extends PreviewController {
       return false;
     }
 
-    if (this.timeToSeek) {
-      const newSrc = `${baseUrl}api/preview/preview_${this.camera}-${this.timeToSeek}.webp/thumbnail.webp`;
+    if (this.timeToSeek !== undefined) {
+      const timeToSeek = this.timeToSeek;
+      this.timeToSeek = undefined;
+      const newSrc = `${baseUrl}api/preview/preview_${this.camera}-${timeToSeek}.webp/thumbnail.webp`;
 
       if (this.imgController.current.src != newSrc) {
         this.imgController.current.src = newSrc;
         this.setCurrentFrame(newSrc);
+        this.seeking = true;
       } else {
-        this.timeToSeek = undefined;
         this.seeking = false;
       }
     } else {
@@ -662,6 +671,14 @@ class PreviewFramesController extends PreviewController {
   }
 
   override setNewPreviewStartTime(time: number) {
-    this.timeToSeek = time;
+    this.timeToSeek = this.getFrameForTimestamp(time);
+  }
+
+  frameLoadFailed() {
+    // A frame can disappear while the preview converter moves or cleans the
+    // cache. Allow the next scrub request to select another frame instead of
+    // keeping the controller permanently in a seeking state.
+    this.seeking = false;
+    this.timeToSeek = undefined;
   }
 }

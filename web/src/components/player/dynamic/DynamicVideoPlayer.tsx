@@ -314,11 +314,14 @@ export default function DynamicVideoPlayer({
 
   return (
     <>
+      {/* Keep the high-resolution player visible until a low-resolution
+          preview controller actually exists. Without this guard, a missing
+          or late preview made scrubbing render only a black tile. */}
       {source && (
         <HlsVideoPlayer
           videoRef={playerRef}
           containerRef={containerRef}
-          visible={!(isScrubbing || isLoading)}
+          visible={!(isScrubbing || isLoading) || !previewController}
           currentSource={source}
           hotKeys={hotKeys}
           supportsFullscreen={supportsFullscreen}
