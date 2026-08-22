@@ -483,19 +483,10 @@ export function RecordingView({
     }
   }, [getCameraAspect, mainCamera]);
 
-  const grow = useMemo(() => {
-    if (mainCameraAspect == "wide") {
-      return "w-full aspect-wide";
-    } else if (mainCameraAspect == "tall") {
-      if (isDesktop) {
-        return "size-full aspect-tall flex flex-col justify-center";
-      } else {
-        return "size-full";
-      }
-    } else {
-      return "w-full aspect-video";
-    }
-  }, [mainCameraAspect]);
+  // The surrounding camera tile already owns the camera aspect ratio. Keep
+  // the player itself at the exact tile size so the video element can fit its
+  // source with object-contain instead of introducing a second aspect ratio.
+  const grow = "size-full min-h-0 min-w-0";
 
   // use a resize observer to determine whether to use w-full or h-full based on container aspect ratio
   const [{ width: containerWidth, height: containerHeight }] =
@@ -955,11 +946,11 @@ export function RecordingView({
                 </div>
               )}
               {isMulticam && (
-                <div className="grid size-full min-h-0 min-w-0 grid-cols-1 gap-1 sm:grid-cols-2">
+                <div className="grid size-full min-h-0 min-w-0 auto-rows-fr grid-cols-1 gap-1 sm:grid-cols-2">
                   {multicamCameras.map((camera) => (
                     <div
                       key={camera}
-                      className="relative min-h-0 min-w-0 overflow-hidden rounded-md bg-black"
+                      className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-md bg-black"
                     >
                       <div className="absolute left-2 top-2 z-10 rounded bg-black/70 px-2 py-1 text-xs text-white">
                         <CameraNameLabel camera={camera} />

@@ -379,6 +379,7 @@ export default function DynamicVideoPlayer({
       )}
       <PreviewPlayer
         className={cn(
+          "absolute inset-0 z-10",
           className,
           isScrubbing || isLoading ? "visible" : "hidden",
         )}

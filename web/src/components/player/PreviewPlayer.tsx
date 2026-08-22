@@ -275,7 +275,7 @@ function PreviewVideoPlayer({
     <div
       ref={visibilityRef}
       className={cn(
-        "relative flex w-full justify-center overflow-hidden rounded-lg bg-black md:rounded-2xl",
+        "relative flex size-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-lg bg-black md:rounded-2xl",
         onClick && "cursor-pointer",
         className,
       )}
@@ -283,7 +283,7 @@ function PreviewVideoPlayer({
       onClick={onClick}
     >
       <img
-        className={`absolute size-full object-contain ${currentHourFrame ? "visible" : "invisible"}`}
+        className={`absolute inset-0 size-full object-contain ${currentHourFrame ? "visible" : "invisible"}`}
         src={currentHourFrame}
         onLoad={() => {
           if (changeoverTimeout) {
@@ -297,7 +297,7 @@ function PreviewVideoPlayer({
       {isVisible && (
         <video
           ref={setPreviewRef}
-          className={`absolute size-full ${currentHourFrame ? "invisible" : "visible"}`}
+          className={`absolute inset-0 size-full object-contain ${currentHourFrame ? "invisible" : "visible"}`}
           preload="auto"
           autoPlay
           playsInline
@@ -567,7 +567,7 @@ function PreviewFramesPlayer({
   return (
     <div
       className={cn(
-        "relative flex w-full justify-center",
+        "relative flex size-full min-h-0 min-w-0 items-center justify-center overflow-hidden",
         className,
         onClick && "cursor-pointer",
       )}
@@ -575,7 +575,7 @@ function PreviewFramesPlayer({
     >
       <img
         ref={setPreviewRef}
-        className={`size-full rounded-lg bg-black object-contain md:rounded-2xl`}
+        className="size-full rounded-lg bg-black object-contain md:rounded-2xl"
         loading="eager"
         onLoad={onImageLoaded}
         onError={() => {

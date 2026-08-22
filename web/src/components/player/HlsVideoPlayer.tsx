@@ -372,10 +372,13 @@ export default function HlsVideoPlayer({
           }}
           contentStyle={{
             width: "100%",
-            height: isMobile ? "100%" : undefined,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          <div className="relative size-full">
+          <div className="relative flex size-full min-h-0 min-w-0 items-center justify-center overflow-hidden">
             {transformedOverlay}
             {isDetailMode &&
               camera &&
@@ -412,7 +415,7 @@ export default function HlsVideoPlayer({
               )}
             <video
               ref={videoRef}
-              className={`size-full rounded-lg bg-black md:rounded-2xl ${loadedMetadata ? "" : "invisible"} cursor-pointer`}
+              className={`size-full rounded-lg bg-black object-contain md:rounded-2xl ${loadedMetadata ? "" : "invisible"} cursor-pointer`}
               preload="auto"
               autoPlay
               controls={!frigateControls}
