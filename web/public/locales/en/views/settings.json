@@ -107,6 +107,7 @@
     "supported": "Supported",
     "notSupported": "Not supported",
     "checking": "Checking ONVIF capabilities…",
+    "capabilityError": "Unable to retrieve ONVIF capabilities. Verify the camera's ONVIF connection and try again.",
     "unsupported": "Auto Zoom requires a camera with supported ONVIF zoom control."
   },
   "dialog": {

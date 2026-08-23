@@ -18,8 +18,9 @@ export default function AutoZoomSettingsView({
   ...props
 }: SettingsPageProps) {
   const { t } = useTranslation(["config/cameras", "views/settings"]);
-  const { data: info } = useSWR<PtzInfo>(
-    selectedCamera ? `api/${selectedCamera}/ptz/info` : null,
+  const { data: info, error } = useSWR<PtzInfo>(
+    // ApiProvider already configures axios with the /api/ base path.
+    selectedCamera ? `${selectedCamera}/ptz/info` : null,
   );
   const zoomSupported = info?.autozoom?.supported;
 
@@ -42,7 +43,11 @@ export default function AutoZoomSettingsView({
           <div className="font-medium">
             {t("autozoom.capabilities", { ns: "views/settings" })}
           </div>
-          {info ? (
+          {error ? (
+            <div className="mt-1 text-destructive">
+              {t("autozoom.capabilityError", { ns: "views/settings" })}
+            </div>
+          ) : info ? (
             <div className="mt-1 text-muted-foreground">
               {t("autozoom.opticalZoom", { ns: "views/settings" })}:{" "}
               {zoomSupported
