@@ -111,6 +111,30 @@ class TestConfig(unittest.TestCase):
         with self.assertRaises(ValidationError):
             FrigateConfig(**config)
 
+    def test_hybrid_proxy_authentication_config(self):
+        config = {
+            **self.minimal,
+            "proxy": {
+                "auth_enabled": True,
+                "auth_secret": "shared-secret",
+                "header_map": {"user": "x-authentik-username"},
+            },
+        }
+
+        frigate_config = FrigateConfig(**config)
+        assert frigate_config.proxy.auth_enabled is True
+
+    def test_hybrid_proxy_authentication_requires_user_header_and_secret(self):
+        for proxy in (
+            {"auth_enabled": True, "auth_secret": "shared-secret"},
+            {
+                "auth_enabled": True,
+                "header_map": {"user": "x-authentik-username"},
+            },
+        ):
+            with self.subTest(proxy=proxy), self.assertRaises(ValidationError):
+                FrigateConfig(**{**self.minimal, "proxy": proxy})
+
     @patch("frigate.detectors.detector_config.load_labels")
     def test_detector_custom_model_path(self, mock_labels):
         mock_labels.return_value = {}

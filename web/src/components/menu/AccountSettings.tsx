@@ -39,7 +39,7 @@ export default function AccountSettings({ className }: AccountSettingsProps) {
   const { t } = useTranslation(["views/settings", "common"]);
   const { data: profile } = useSWR("profile");
   const { data: config } = useSWR("config");
-  const logoutUrl = config?.proxy?.logout_url || `${baseUrl}api/logout`;
+  const logoutUrl = `${baseUrl}api/logout`;
 
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -128,7 +128,8 @@ export default function AccountSettings({ className }: AccountSettingsProps) {
 
           {config?.auth?.enabled !== false &&
             profile?.username &&
-            profile.username !== "anonymous" && (
+            profile.username !== "anonymous" &&
+            profile.auth_source !== "proxy" && (
               <MenuItem
                 className={cn(
                   "flex w-full items-center gap-2",

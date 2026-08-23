@@ -380,6 +380,10 @@
     "proxy": {
         "label": "Proxy",
         "description": "Einstellungen für die Integration von Frigate hinter einem Reverse-Proxy, der authentifizierte Benutzer-Header weiterleitet.",
+        "auth_enabled": {
+            "label": "Proxy-Authentifizierung aktivieren",
+            "description": "Erlaubt einem vertrauenswürdigen vorgeschalteten Authentifizierungs-Proxy, Benutzer zu authentifizieren, während die native Frigate-Authentifizierung aktiv bleibt. Benutzer-Header und Proxy-Geheimnis sind erforderlich."
+        },
         "header_map": {
             "label": "Header-Zuordnung",
             "description": "Ordnen Sie eingehende Proxy-Header den Frigate-Benutzer- und Rollenfeldern für die proxybasierte Authentifizierung zu.",
@@ -402,7 +406,7 @@
         },
         "auth_secret": {
             "label": "Proxy-Geheimnis",
-            "description": "Optionales Geheimnis, das anhand des X-Proxy-Secret-Headers überprüft wird, um vertrauenswürdige Proxys zu verifizieren."
+            "description": "Geheimnis, das anhand des X-Proxy-Secret-Headers geprüft wird. Es ist erforderlich, wenn Proxy- und native Authentifizierung gemeinsam aktiviert sind."
         },
         "default_role": {
             "label": "Standardrolle",

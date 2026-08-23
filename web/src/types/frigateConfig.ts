@@ -583,6 +583,7 @@ export interface FrigateConfig {
   };
 
   proxy: {
+    auth_enabled?: boolean;
     logout_url?: string;
   };
 

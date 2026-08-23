@@ -19,7 +19,8 @@
   "anyOf": "Must match at least one of the allowed schemas",
   "proxy": {
     "header_map": {
-      "roleHeaderRequired": "Role header is required when role mappings are configured."
+      "roleHeaderRequired": "Role header is required when role mappings are configured.",
+      "userHeaderRequired": "User header is required when proxy authentication is enabled."
     }
   },
   "ffmpeg": {

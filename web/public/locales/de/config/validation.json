@@ -19,7 +19,8 @@
     "anyOf": "Muss mindestens mit einem der erlaubten Schemas übereinstimmen",
     "proxy": {
         "header_map": {
-            "roleHeaderRequired": "Rollen-Header muss angegeben werden, wenn Rollen-Zuordnungen konfiguriert sind."
+            "roleHeaderRequired": "Rollen-Header muss angegeben werden, wenn Rollen-Zuordnungen konfiguriert sind.",
+            "userHeaderRequired": "Der Benutzer-Header ist erforderlich, wenn die Proxy-Authentifizierung aktiviert ist."
         }
     },
     "ffmpeg": {

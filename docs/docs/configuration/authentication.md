@@ -202,6 +202,44 @@ Changing the secret will invalidate current tokens.
 
 Frigate can be configured to leverage features of common upstream authentication proxies such as Authelia, Authentik, oauth2_proxy, or traefik-forward-auth.
 
+Three authentication layouts are supported:
+
+- **Native only:** keep `auth.enabled: true` (the default). Frigate username/password and optional native OIDC issue normal Frigate JWTs.
+- **Proxy only:** set `auth.enabled: false` and configure the proxy headers as described below.
+- **Hybrid:** keep `auth.enabled: true` and set `proxy.auth_enabled: true`. Requests with the configured proxy user header use the trusted proxy identity; requests without that header fall back to native JWT authentication.
+
+In hybrid mode, the proxy identity takes precedence over a Frigate JWT. If a proxy user header is present but empty, or the proxy secret is missing or invalid, Frigate returns `401` and does not fall back to the JWT. This prevents authentication downgrade and privilege confusion.
+
+The proxy secret authenticates the proxy, not the user. The user identity and role are accepted from the configured headers only after the proxy secret has been verified. Keep the secret out of logs and URLs, use TLS on untrusted network links, and ensure only the trusted proxy knows it.
+
+### Hybrid proxy and native authentication
+
+The following Authentik example allows internet requests through an Authentik Proxy Outpost while direct LAN clients continue to use native Frigate login or native OIDC:
+
+```yaml
+auth:
+  enabled: true
+
+proxy:
+  auth_enabled: true
+  auth_secret: "{FRIGATE_PROXY_AUTH_SECRET}"
+  separator: "|"
+  header_map:
+    user: x-authentik-username
+    role: x-authentik-groups
+    role_map:
+      admin:
+        - frigate-admin
+      viewer:
+        - frigate-viewer
+  default_role: viewer
+  logout_url: https://auth.example.com/application/o/frigate/end-session/
+```
+
+Configure the proxy to send the same secret in `X-Proxy-Secret`. A request without `X-authentik-username` is treated as a native request and does not need that secret. A request that does contain `X-authentik-username` must provide the valid secret. Proxy-authenticated usernames do not need to exist in Frigate's user database and are not created automatically.
+
+Hybrid mode deliberately preserves direct native access. It does not make compromised native credentials subject to the upstream proxy. Restrict direct access using the network controls appropriate for your installation.
+
 If you are leveraging the authentication of an upstream proxy, you likely want to disable Frigate's authentication as there is no correspondence between users in Frigate's database and users authenticated via the proxy. Optionally, if communication between the reverse proxy and Frigate is over an untrusted network, you should set an `auth_secret` in the `proxy` config and configure the proxy to send the secret value as a header named `X-Proxy-Secret`. Assuming this is an untrusted network, you will also want to [configure a real TLS certificate](tls.md) to ensure the traffic can't simply be sniffed to steal the secret.
 
 To disable Frigate's authentication and ensure requests come only from your known proxy:
@@ -365,7 +403,7 @@ Frigate gracefully performs login page redirection that should work with most au
 
 ### Custom logout url
 
-If your reverse proxy has a dedicated logout url, you can specify using the `logout_url` config option. This will update the link for the `Logout` link in the UI.
+If your reverse proxy has a dedicated logout URL, specify it using `logout_url`. Frigate redirects proxy-authenticated users there after clearing its own cookie. Native JWT users continue to use Frigate's local logout even when `logout_url` is configured.
 
 ## User Roles
 

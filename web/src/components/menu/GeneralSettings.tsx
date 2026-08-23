@@ -37,6 +37,7 @@ import {
 import { IoColorPalette } from "react-icons/io5";
 import { useMemo, useState } from "react";
 import { useRestart } from "@/api/ws";
+import { baseUrl } from "@/api/baseUrl";
 import {
   Tooltip,
   TooltipContent,
@@ -90,7 +91,7 @@ export default function GeneralSettings({ className }: GeneralSettingsProps) {
   const { data: config } = useSWR<FrigateConfig>("config");
   const { data: profilesData, mutate: updateProfiles } =
     useSWR<ProfilesApiResponse>("profiles");
-  const logoutUrl = config?.proxy?.logout_url || "/api/logout";
+  const logoutUrl = `${baseUrl}api/logout`;
 
   // languages
 
@@ -268,7 +269,8 @@ export default function GeneralSettings({ className }: GeneralSettingsProps) {
                 />
                 {config?.auth?.enabled !== false &&
                   profile?.username &&
-                  profile.username !== "anonymous" && (
+                  profile.username !== "anonymous" &&
+                  profile.auth_source !== "proxy" && (
                     <MenuItem
                       className={
                         isDesktop

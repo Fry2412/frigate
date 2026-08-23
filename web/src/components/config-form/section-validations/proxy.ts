@@ -13,9 +13,21 @@ export function validateProxyRoleHeader(
   }
 
   const headerMap = (formData as JsonObject).header_map;
-  if (!isJsonObject(headerMap)) {
-    return errors;
+  const proxyAuthEnabled = (formData as JsonObject).auth_enabled === true;
+
+  if (proxyAuthEnabled) {
+    const userHeader = isJsonObject(headerMap) ? headerMap.user : undefined;
+    if (typeof userHeader !== "string" || userHeader.trim().length === 0) {
+      const headerMapErrors = errors.header_map as {
+        user?: { addError?: (message: string) => void };
+      };
+      headerMapErrors?.user?.addError?.(
+        t("proxy.header_map.userHeaderRequired", { ns: "config/validation" }),
+      );
+    }
   }
+
+  if (!isJsonObject(headerMap)) return errors;
 
   const roleHeader = headerMap.role;
   const roleHeaderDefined =

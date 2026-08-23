@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .base import FrigateBaseModel
 from .env import EnvString
@@ -27,6 +27,11 @@ class HeaderMappingConfig(FrigateBaseModel):
 
 
 class ProxyConfig(FrigateBaseModel):
+    auth_enabled: bool = Field(
+        default=False,
+        title="Enable proxy authentication",
+        description="Allow a trusted upstream authentication proxy to authenticate users while native Frigate authentication remains enabled.",
+    )
     header_map: HeaderMappingConfig = Field(
         default_factory=HeaderMappingConfig,
         title="Header mapping",
@@ -40,7 +45,7 @@ class ProxyConfig(FrigateBaseModel):
     auth_secret: Optional[EnvString] = Field(
         default=None,
         title="Proxy secret",
-        description="Optional secret checked against the X-Proxy-Secret header to verify trusted proxies.",
+        description="Secret checked against X-Proxy-Secret to verify trusted proxies; required when proxy authentication is enabled alongside native authentication.",
     )
     default_role: Optional[str] = Field(
         default="viewer",
@@ -59,3 +64,20 @@ class ProxyConfig(FrigateBaseModel):
         if v is not None and len(v) != 1:
             raise ValueError("Separator must be exactly one character")
         return v
+
+    @model_validator(mode="after")
+    def validate_proxy_authentication(self):
+        if not self.auth_enabled:
+            return self
+
+        if not self.header_map.user or not self.header_map.user.strip():
+            raise ValueError(
+                "proxy.header_map.user must be configured when proxy.auth_enabled is true"
+            )
+
+        if not self.auth_secret or not str(self.auth_secret).strip():
+            raise ValueError(
+                "proxy.auth_secret must be configured when proxy.auth_enabled is true"
+            )
+
+        return self

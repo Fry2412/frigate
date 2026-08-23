@@ -186,6 +186,10 @@
   "proxy": {
     "label": "Proxy",
     "description": "Settings for integrating Frigate behind a reverse proxy that passes authenticated user headers.",
+    "auth_enabled": {
+      "label": "Enable proxy authentication",
+      "description": "Allow a trusted upstream authentication proxy to authenticate users while native Frigate authentication remains enabled. A user header and proxy secret are required."
+    },
     "header_map": {
       "label": "Header mapping",
       "description": "Map incoming proxy headers to Frigate user and role fields for proxy-based auth.",
@@ -208,7 +212,7 @@
     },
     "auth_secret": {
       "label": "Proxy secret",
-      "description": "Optional secret checked against the X-Proxy-Secret header to verify trusted proxies."
+      "description": "Secret checked against X-Proxy-Secret to verify trusted proxies. Required when proxy authentication is enabled alongside native authentication."
     },
     "default_role": {
       "label": "Default role",

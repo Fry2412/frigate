@@ -91,8 +91,11 @@ networking:
 
 # Optional: Proxy configuration
 proxy:
+  # Optional: Allow proxy headers to authenticate a request while native Frigate auth
+  # remains enabled. Requires header_map.user and auth_secret. (default: shown below)
+  auth_enabled: False
   # Optional: Mapping for headers from upstream proxies. Only used if Frigate's auth
-  # is disabled.
+  # is disabled or proxy authentication is enabled.
   # NOTE: Many authentication proxies pass a header downstream with the authenticated
   #       user name and role. Not all values are supported. It must be a whitelisted header.
   #       See the docs for more info.
@@ -105,11 +108,11 @@ proxy:
         - access-level-security
       viewer:
         - camera-viewer
-  # Optional: Url for logging out a user. This sets the location of the logout url in
-  # the UI.
+  # Optional: URL used to log out proxy-authenticated users. Native users continue to
+  # use Frigate's local logout.
   logout_url: /api/logout
-  # Optional: Auth secret that is checked against the X-Proxy-Secret header sent from
-  # the proxy. If not set, all requests are trusted regardless of origin.
+  # Optional in proxy-only mode, required when auth_enabled is true: Secret checked
+  # against the X-Proxy-Secret header sent from the proxy.
   auth_secret: None
   # Optional: The default role to use for proxy auth. Must be "admin" or "viewer"
   default_role: viewer

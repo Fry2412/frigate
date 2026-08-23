@@ -910,6 +910,30 @@ def resolve_role(
     return resolved
 
 
+def _proxy_secret_matches(request: Request, proxy_config: ProxyConfig) -> bool:
+    """Validate the shared proxy secret without leaking timing information."""
+    configured_secret = proxy_config.auth_secret
+    supplied_secret = request.headers.get("x-proxy-secret", "")
+    if configured_secret is None:
+        return True
+    return secrets.compare_digest(supplied_secret, str(configured_secret))
+
+
+def _proxy_auth_response(
+    request: Request,
+    proxy_config: ProxyConfig,
+    config_roles: set[str],
+    username: str,
+) -> Response:
+    response = Response("", status_code=202)
+    response.headers["remote-user"] = username
+    response.headers["remote-role"] = resolve_role(
+        request.headers, proxy_config, config_roles
+    )
+    response.headers["remote-auth-source"] = "proxy"
+    return response
+
+
 # Endpoints
 @router.get(
     "/auth",
@@ -931,6 +955,12 @@ def resolve_role(
                 },
                 "remote-role": {
                     "description": "Resolved role (e.g., admin, viewer, or custom)",
+                    "schema": {"type": "string"},
+                },
+                "remote-auth-source": {
+                    "description": (
+                        "Internal authentication source (internal, proxy, or jwt)"
+                    ),
                     "schema": {"type": "string"},
                 },
                 "Set-Cookie": {
@@ -959,15 +989,17 @@ def auth(request: Request):
     if int(request.headers.get("x-server-port", default=0)) == internal_port:
         success_response.headers["remote-user"] = "anonymous"
         success_response.headers["remote-role"] = "admin"
+        success_response.headers["remote-auth-source"] = "internal"
         return success_response
 
     fail_response = Response("", status_code=401)
 
-    # ensure the proxy secret matches if configured
+    # Preserve the existing global proxy-secret guard unless explicit hybrid
+    # proxy authentication is enabled. In hybrid mode, direct native clients
+    # do not have to know the proxy secret.
     if (
-        proxy_config.auth_secret is not None
-        and request.headers.get("x-proxy-secret", "") != proxy_config.auth_secret
-    ):
+        not auth_config.enabled or not proxy_config.auth_enabled
+    ) and not _proxy_secret_matches(request, proxy_config):
         logger.debug("X-Proxy-Secret header does not match configured secret value")
         return fail_response
 
@@ -976,18 +1008,37 @@ def auth(request: Request):
         # pass the user header value from the upstream proxy if a mapping is specified
         # or use viewer if none are specified
         user_header = proxy_config.header_map.user
-        success_response.headers["remote-user"] = (
+        username = (
             request.headers.get(user_header, default="viewer")
             if user_header
             else "viewer"
         )
+        return _proxy_auth_response(
+            request, proxy_config, set(auth_config.roles.keys()), username
+        )
 
-        # parse header and resolve a valid role
-        config_roles_set = set(auth_config.roles.keys())
-        role = resolve_role(request.headers, proxy_config, config_roles_set)
-
-        success_response.headers["remote-role"] = role
-        return success_response
+    if proxy_config.auth_enabled:
+        user_header = proxy_config.header_map.user
+        # Pydantic validation guarantees a non-empty user header in this mode.
+        if user_header in request.headers:
+            logger.debug("Proxy authentication attempted")
+            username = request.headers.get(user_header, "").strip()
+            if not username:
+                logger.debug("Proxy authentication rejected because user is empty")
+                return fail_response
+            if not _proxy_secret_matches(request, proxy_config):
+                logger.debug(
+                    "Proxy authentication rejected because proxy secret is invalid"
+                )
+                return fail_response
+            logger.debug("Proxy authentication accepted for user %s", username)
+            return _proxy_auth_response(
+                request,
+                proxy_config,
+                set(auth_config.roles.keys()),
+                username,
+            )
+        logger.debug("No proxy identity found; falling back to native authentication")
 
     # now apply authentication
     fail_response.headers["location"] = _login_path(request)
@@ -1081,6 +1132,7 @@ def auth(request: Request):
 
         success_response.headers["remote-user"] = user
         success_response.headers["remote-role"] = role
+        success_response.headers["remote-auth-source"] = "jwt"
         return success_response
     except Exception as e:
         logger.error(f"Error parsing jwt: {e}")
@@ -1096,13 +1148,19 @@ def auth(request: Request):
 def profile(request: Request):
     username = request.headers.get("remote-user", "viewer")
     role = request.headers.get("remote-role", "viewer")
+    auth_source = request.headers.get("remote-auth-source", "unknown")
 
     all_camera_names = set(request.app.frigate_config.cameras.keys())
     roles_dict = request.app.frigate_config.auth.roles
     allowed_cameras = User.get_allowed_cameras(role, roles_dict, all_camera_names)
 
     response = JSONResponse(
-        content={"username": username, "role": role, "allowed_cameras": allowed_cameras}
+        content={
+            "username": username,
+            "role": role,
+            "allowed_cameras": allowed_cameras,
+            "auth_source": auth_source,
+        }
     )
 
     if username == "anonymous":
@@ -1134,7 +1192,14 @@ def profile(request: Request):
 )
 def logout(request: Request):
     auth_config: AuthConfig = request.app.frigate_config.auth
-    response = RedirectResponse(_login_path(request), status_code=303)
+    proxy_config: ProxyConfig = request.app.frigate_config.proxy
+    auth_source = request.headers.get("remote-auth-source")
+    redirect_url = (
+        proxy_config.logout_url
+        if auth_source == "proxy" and proxy_config.logout_url
+        else _login_path(request)
+    )
+    response = RedirectResponse(redirect_url, status_code=303)
     response.delete_cookie(auth_config.cookie_name)
     return response
 
