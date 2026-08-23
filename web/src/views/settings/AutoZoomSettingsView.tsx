@@ -11,6 +11,10 @@ type PtzInfo = {
 
 export default function AutoZoomSettingsView({
   selectedCamera,
+  // Profile deletion is handled by the profile editing page. Auto Zoom is a
+  // camera-only section, and ConfigSectionTemplate expects a parameterless
+  // callback for deleting a section, so do not forward the page-level handler.
+  onDeleteProfileSection: _onDeleteProfileSection,
   ...props
 }: SettingsPageProps) {
   const { t } = useTranslation(["config/cameras", "views/settings"]);
