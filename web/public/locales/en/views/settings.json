@@ -101,6 +101,7 @@
   "autozoom": {
     "capabilities": "Camera capabilities",
     "opticalZoom": "Optical zoom",
+    "continuous": "Continuous",
     "absolute": "Absolute",
     "relative": "Relative",
     "selectedMode": "Selected mode",
@@ -108,6 +109,7 @@
     "notSupported": "Not supported",
     "checking": "Checking ONVIF capabilities…",
     "capabilityError": "Unable to retrieve ONVIF capabilities. Verify the camera's ONVIF connection and try again.",
+    "continuousOnly": "This camera only exposes continuous ONVIF zoom. Object Auto Zoom requires absolute or relative zoom so it can make safe, deterministic framing decisions.",
     "unsupported": "Auto Zoom requires a camera with supported ONVIF zoom control."
   },
   "dialog": {

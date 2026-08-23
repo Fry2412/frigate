@@ -23,6 +23,9 @@ export default function AutoZoomSettingsView({
     selectedCamera ? `${selectedCamera}/ptz/info` : null,
   );
   const zoomSupported = info?.autozoom?.supported;
+  const opticalZoomSupported = info?.features?.some((feature) =>
+    ["zoom", "zoom-a", "zoom-r"].includes(feature),
+  );
 
   if (!selectedCamera) {
     return (
@@ -50,7 +53,11 @@ export default function AutoZoomSettingsView({
           ) : info ? (
             <div className="mt-1 text-muted-foreground">
               {t("autozoom.opticalZoom", { ns: "views/settings" })}:{" "}
-              {zoomSupported
+              {opticalZoomSupported
+                ? t("autozoom.supported", { ns: "views/settings" })
+                : t("autozoom.notSupported", { ns: "views/settings" })}{" "}
+              · {t("autozoom.continuous", { ns: "views/settings" })}:{" "}
+              {info.features?.includes("zoom")
                 ? t("autozoom.supported", { ns: "views/settings" })
                 : t("autozoom.notSupported", { ns: "views/settings" })}{" "}
               · {t("autozoom.absolute", { ns: "views/settings" })}:{" "}
@@ -77,7 +84,9 @@ export default function AutoZoomSettingsView({
         </div>
         {info && !zoomSupported && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {t("autozoom.unsupported", { ns: "views/settings" })}
+            {opticalZoomSupported
+              ? t("autozoom.continuousOnly", { ns: "views/settings" })
+              : t("autozoom.unsupported", { ns: "views/settings" })}
           </div>
         )}
       </div>

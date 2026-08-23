@@ -487,53 +487,64 @@ class OnvifController:
         if configs.DefaultRelativePanTiltTranslationSpace:
             supported_features.append("pt-r")
 
-        if configs.DefaultRelativeZoomTranslationSpace:
+        # A number of cameras omit Default*Zoom*Space from their media
+        # profile even though their PTZ service exposes fully usable zoom
+        # spaces through GetConfigurationOptions.  Auto Zoom needs the actual
+        # range, not merely a profile default, so feature detection must use
+        # the configuration options as the source of truth.
+        relative_zoom_spaces = []
+        absolute_zoom_spaces = []
+        if ptz_config is not None:
+            try:
+                relative_zoom_spaces = list(
+                    ptz_config.Spaces.RelativeZoomTranslationSpace or []
+                )
+            except (AttributeError, TypeError):
+                pass
+            try:
+                absolute_zoom_spaces = list(
+                    ptz_config.Spaces.AbsoluteZoomPositionSpace or []
+                )
+            except (AttributeError, TypeError):
+                pass
+
+        if relative_zoom_spaces:
             supported_features.append("zoom-r")
-            if ptz_config is not None:
-                try:
-                    self.cams[camera_name]["relative_zoom_range"] = (
-                        ptz_config.Spaces.RelativeZoomTranslationSpace[0]
-                    )
-                except Exception as e:
-                    if autotracking_config.zooming == ZoomingModeEnum.relative:
-                        autotracking_config.zooming = ZoomingModeEnum.disabled
-                        logger.warning(
-                            f"Disabling autotracking zooming for {camera_name}: Relative zoom not supported. Exception: {e}"
-                        )
+            try:
+                zoom_range = relative_zoom_spaces[0]
+                self.cams[camera_name]["relative_zoom_range"] = zoom_range
 
-            # A RelativeMove used solely for zoom must not contain a
-            # PanTilt translation. Several fixed cameras reject it even
-            # though they correctly advertise relative zoom.
-            if ptz_config is not None:
-                try:
-                    zoom_range = ptz_config.Spaces.RelativeZoomTranslationSpace[0]
-                    zoom_request = ptz.create_type("RelativeMove")
-                    zoom_request.ProfileToken = profile.token
-                    zoom_request.Translation = {
-                        "Zoom": {"x": 0, "space": zoom_range["URI"]}
-                    }
-                    self.cams[camera_name]["relative_zoom_request"] = zoom_request
-                except Exception as e:
-                    logger.debug(
-                        "Unable to build zoom-only RelativeMove for %s: %s",
-                        camera_name,
-                        e,
-                    )
+                # A RelativeMove used solely for zoom must not contain a
+                # PanTilt translation. Several fixed cameras reject it even
+                # though they correctly advertise relative zoom.
+                zoom_request = ptz.create_type("RelativeMove")
+                zoom_request.ProfileToken = profile.token
+                zoom_request.Translation = {
+                    "Zoom": {"x": 0, "space": zoom_range["URI"]}
+                }
+                self.cams[camera_name]["relative_zoom_request"] = zoom_request
+            except Exception as e:
+                supported_features.remove("zoom-r")
+                self.cams[camera_name].pop("relative_zoom_range", None)
+                logger.debug(
+                    "Unable to build zoom-only RelativeMove for %s: %s",
+                    camera_name,
+                    e,
+                )
 
-        if configs.DefaultAbsoluteZoomPositionSpace:
+        if absolute_zoom_spaces:
             supported_features.append("zoom-a")
-            if ptz_config is not None:
-                try:
-                    self.cams[camera_name]["absolute_zoom_range"] = (
-                        ptz_config.Spaces.AbsoluteZoomPositionSpace[0]
-                    )
-                    self.cams[camera_name]["zoom_limits"] = configs.ZoomLimits
-                except Exception as e:
-                    if autotracking_config.zooming != ZoomingModeEnum.disabled:
-                        autotracking_config.zooming = ZoomingModeEnum.disabled
-                        logger.warning(
-                            f"Disabling autotracking zooming for {camera_name}: Absolute zoom not supported. Exception: {e}"
-                        )
+            try:
+                self.cams[camera_name]["absolute_zoom_range"] = (
+                    absolute_zoom_spaces[0]
+                )
+                self.cams[camera_name]["zoom_limits"] = configs.ZoomLimits
+            except Exception as e:
+                supported_features.remove("zoom-a")
+                self.cams[camera_name].pop("absolute_zoom_range", None)
+                logger.debug(
+                    "Unable to configure absolute zoom for %s: %s", camera_name, e
+                )
 
         # disable autotracking zoom if required ranges are unavailable
         if autotracking_config.zooming != ZoomingModeEnum.disabled:
