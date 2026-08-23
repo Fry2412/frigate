@@ -29,6 +29,7 @@ from frigate.const import (
     AUTOTRACKING_ZOOM_IN_HYSTERESIS,
     AUTOTRACKING_ZOOM_OUT_HYSTERESIS,
 )
+from frigate.ptz.autozoom import AutoZoomController
 from frigate.ptz.onvif import OnvifController
 from frigate.track.tracked_object import TrackedObject
 from frigate.util.builtin import update_yaml_file_bulk
@@ -73,6 +74,7 @@ class PtzMotionEstimator:
             if (
                 self.camera_config.onvif.autotracking.zooming
                 != ZoomingModeEnum.disabled
+                or self.camera_config.onvif.autozoom.enabled
             ):
                 logger.debug(f"{camera}: Motion estimator reset - homography")
                 transformation_type = HomographyTransformationGetter()
@@ -160,6 +162,8 @@ class PtzAutoTrackerThread(threading.Thread):
         self.ptz_autotracker = PtzAutoTracker(
             config, onvif, ptz_metrics, dispatcher, stop_event
         )
+        self.autozoom = AutoZoomController(config, onvif)
+        self.ptz_autotracker.autozoom = self.autozoom
         self.stop_event = stop_event
         self.config = config
 
@@ -181,6 +185,10 @@ class PtzAutoTrackerThread(threading.Thread):
                     if self.ptz_autotracker.tracked_object.get(camera):
                         self.ptz_autotracker.tracked_object[camera] = None
                         self.ptz_autotracker.tracked_object_history[camera].clear()
+
+                # Auto Zoom has an independent state machine and must also be
+                # maintained for zoom-only cameras with no pan/tilt support.
+                self.autozoom.maintenance(camera)
 
         logger.info("Exiting autotracker...")
 
@@ -1333,6 +1341,15 @@ class PtzAutoTracker:
     def autotrack_object(self, camera: str, obj: TrackedObject):
         camera_config = self.config.cameras[camera]
 
+        # The zoom-only controller shares the tracked-object lifecycle but is
+        # intentionally independent of PTZ autotracking eligibility.
+        # It is owned by the same thread so object updates stay ordered.
+        # Access through the thread is injected below for backwards-compatible
+        # PtzAutoTracker construction in tests.
+        controller = getattr(self, "autozoom", None)
+        if controller is not None:
+            controller.on_object(camera, obj)
+
         if camera_config.onvif.autotracking.enabled:
             if not self.autotracker_init[camera]:
                 future = asyncio.run_coroutine_threadsafe(
@@ -1437,6 +1454,9 @@ class PtzAutoTracker:
                 return
 
     def end_object(self, camera, obj):
+        controller = getattr(self, "autozoom", None)
+        if controller is not None:
+            controller.on_object_end(camera, obj)
         if self.config.cameras[camera].onvif.autotracking.enabled:
             if (
                 self.tracked_object[camera] is not None

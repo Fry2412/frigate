@@ -181,6 +181,32 @@ export interface CameraConfig {
     };
   };
   onvif: {
+    autozoom: {
+      enabled: boolean;
+      mode: "auto" | "absolute" | "relative";
+      track: string[];
+      required_zones: string[];
+      framing: {
+        preset: string;
+        target_margin: number;
+        emergency_margin: number;
+      };
+      zoom: {
+        min: number;
+        max: number;
+        zoom_in_step: number;
+        zoom_out_step: number;
+        emergency_zoom_out_step: number;
+      };
+      tracking: {
+        activation_delay: number;
+        prediction_horizon: number;
+        reacquire_timeout: number;
+        settle_time: number;
+        manual_override_timeout: number;
+      };
+      return: { mode: "previous"; timeout: number };
+    };
     autotracking: {
       calibrate_on_startup: boolean;
       enabled: boolean;

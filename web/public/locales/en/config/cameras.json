@@ -835,6 +835,62 @@
         "description": "Internal field to track whether autotracking was enabled in configuration."
       }
     },
+    "autozoom": {
+      "label": "Object Auto Zoom",
+      "description": "Automatically zoom in on detected objects while keeping enough surrounding scene visible. Optical zoom narrows the recorded field of view.",
+      "enabled": {
+        "label": "Enable Auto Zoom",
+        "description": "Enable zoom-only automatic object framing."
+      },
+      "mode": {
+        "label": "Selected mode",
+        "description": "Auto uses absolute zoom when available, otherwise relative zoom."
+      },
+      "track": {
+        "label": "Objects",
+        "description": "Object labels that may start Auto Zoom."
+      },
+      "required_zones": {
+        "label": "Trigger zones",
+        "description": "Objects must enter one of these zones before Auto Zoom begins. Leave empty to allow all eligible objects."
+      },
+      "framing": {
+        "label": "Framing",
+        "preset": {
+          "label": "Framing preset",
+          "description": "Wide, balanced, or tight framing. Advanced margins take precedence for custom tuning."
+        },
+        "target_margin": {
+          "label": "Target margin",
+          "description": "Safe frame inset as a fraction of the image."
+        },
+        "emergency_margin": {
+          "label": "Emergency margin",
+          "description": "Edge inset that forces a rapid zoom-out."
+        }
+      },
+      "zoom": {
+        "label": "Zoom limits",
+        "min": { "label": "Minimum zoom" },
+        "max": { "label": "Maximum zoom" },
+        "zoom_in_step": { "label": "Zoom-in step" },
+        "zoom_out_step": { "label": "Zoom-out step" },
+        "emergency_zoom_out_step": { "label": "Emergency zoom-out step" }
+      },
+      "tracking": {
+        "label": "Advanced tracking",
+        "activation_delay": { "label": "Activation delay" },
+        "prediction_horizon": { "label": "Prediction horizon" },
+        "reacquire_timeout": { "label": "Reacquire timeout" },
+        "settle_time": { "label": "Settle time" },
+        "manual_override_timeout": { "label": "Manual override timeout" }
+      },
+      "return": {
+        "label": "Return",
+        "mode": { "label": "Return mode" },
+        "timeout": { "label": "Return timeout" }
+      }
+    },
     "ignore_time_mismatch": {
       "label": "Ignore time mismatch",
       "description": "Ignore time synchronization differences between camera and Frigate server for ONVIF communication."

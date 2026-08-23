@@ -52,6 +52,7 @@ export const cameraUpdateTopicMap: Record<string, string> = {
   semantic_search: "semantic_search",
   mqtt: "mqtt",
   onvif: "onvif",
+  "onvif.autozoom": "onvif",
   ui: "ui",
 };
 

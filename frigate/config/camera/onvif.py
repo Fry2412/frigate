@@ -1,19 +1,205 @@
 from enum import Enum
 from typing import Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..base import FrigateBaseModel
 from ..env import EnvString
 from .objects import DEFAULT_TRACKED_OBJECTS
 
-__all__ = ["OnvifConfig", "PtzAutotrackConfig", "ZoomingModeEnum"]
+__all__ = [
+    "AutoZoomConfig",
+    "AutoZoomFramingConfig",
+    "AutoZoomReturnConfig",
+    "AutoZoomTrackingConfig",
+    "AutoZoomZoomConfig",
+    "OnvifConfig",
+    "PtzAutotrackConfig",
+    "ZoomingModeEnum",
+]
 
 
 class ZoomingModeEnum(str, Enum):
     disabled = "disabled"
     absolute = "absolute"
     relative = "relative"
+
+
+class AutoZoomModeEnum(str, Enum):
+    auto = "auto"
+    absolute = "absolute"
+    relative = "relative"
+
+
+class AutoZoomFramingConfig(FrigateBaseModel):
+    preset: str = Field(
+        default="balanced",
+        title="Framing",
+        description="Wide, balanced, tight, or custom framing.",
+    )
+    target_margin: float = Field(
+        default=0.17,
+        title="Target margin",
+        description="Safe inset from every image edge while zooming in.",
+        gt=0,
+        lt=0.5,
+    )
+    emergency_margin: float = Field(
+        default=0.05,
+        title="Emergency margin",
+        description="Inset that triggers an immediate zoom-out.",
+        ge=0,
+        lt=0.5,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_preset_margin(cls, values):
+        if not isinstance(values, dict) or "target_margin" in values:
+            return values
+        margins = {"wide": 0.25, "balanced": 0.17, "tight": 0.10}
+        if values.get("preset") in margins:
+            return {**values, "target_margin": margins[values["preset"]]}
+        return values
+
+
+class AutoZoomZoomConfig(FrigateBaseModel):
+    min: float = Field(
+        default=0.0,
+        title="Minimum zoom",
+        description="Minimum normalized zoom level.",
+        ge=0,
+        le=1,
+    )
+    max: float = Field(
+        default=0.8,
+        title="Maximum zoom",
+        description="Maximum normalized zoom level.",
+        gt=0,
+        le=1,
+    )
+    zoom_in_step: float = Field(
+        default=0.05,
+        title="Zoom-in step",
+        description="Conservative normalized zoom increment.",
+        gt=0,
+        le=1,
+    )
+    zoom_out_step: float = Field(
+        default=0.12,
+        title="Zoom-out step",
+        description="Normalized zoom decrement when framing is unsafe.",
+        gt=0,
+        le=1,
+    )
+    emergency_zoom_out_step: float = Field(
+        default=0.25,
+        title="Emergency zoom-out step",
+        description="Normalized zoom decrement used near an image edge.",
+        gt=0,
+        le=1,
+    )
+
+
+class AutoZoomTrackingConfig(FrigateBaseModel):
+    activation_delay: float = Field(
+        default=0.4,
+        title="Activation delay",
+        description="Seconds an eligible object must remain stable before Auto Zoom starts.",
+        ge=0,
+    )
+    prediction_horizon: float = Field(
+        default=0.75,
+        title="Prediction horizon",
+        description="Seconds of object motion considered before moving zoom.",
+        ge=0,
+        le=5,
+    )
+    reacquire_timeout: float = Field(
+        default=1.5,
+        title="Reacquire timeout",
+        description="Seconds to wait for the locked target after a temporary loss.",
+        ge=0,
+    )
+    settle_time: float = Field(
+        default=0.35,
+        title="Settle time",
+        description="Seconds to wait after a normal zoom command before another zoom-in.",
+        ge=0,
+    )
+    manual_override_timeout: float = Field(
+        default=30,
+        title="Manual override timeout",
+        description="Seconds Auto Zoom remains paused after a manual PTZ command.",
+        ge=0,
+    )
+
+
+class AutoZoomReturnConfig(FrigateBaseModel):
+    mode: str = Field(
+        default="previous",
+        title="Return mode",
+        description="Restore the zoom level that was active before tracking.",
+    )
+    timeout: float = Field(
+        default=5,
+        title="Return timeout",
+        description="Seconds to wait after tracking ends before restoring previous zoom.",
+        ge=0,
+    )
+
+
+class AutoZoomConfig(FrigateBaseModel):
+    enabled: bool = Field(
+        default=False,
+        title="Enable Auto Zoom",
+        description="Automatically zoom in on detected objects while preserving safe framing.",
+    )
+    mode: AutoZoomModeEnum = Field(
+        default=AutoZoomModeEnum.auto,
+        title="Zoom mode",
+        description="Auto prefers absolute ONVIF zoom, then relative zoom.",
+    )
+    track: list[str] = Field(
+        default=DEFAULT_TRACKED_OBJECTS,
+        title="Objects",
+        description="Object labels that may start Auto Zoom.",
+    )
+    required_zones: list[str] = Field(
+        default_factory=list,
+        title="Trigger zones",
+        description="Objects must enter one of these zones before Auto Zoom starts.",
+    )
+    framing: AutoZoomFramingConfig = Field(
+        default_factory=AutoZoomFramingConfig, title="Framing"
+    )
+    zoom: AutoZoomZoomConfig = Field(default_factory=AutoZoomZoomConfig, title="Zoom")
+    tracking: AutoZoomTrackingConfig = Field(
+        default_factory=AutoZoomTrackingConfig, title="Tracking"
+    )
+    return_: AutoZoomReturnConfig = Field(
+        default_factory=AutoZoomReturnConfig, alias="return", title="Return"
+    )
+
+    @model_validator(mode="after")
+    def validate_autozoom(self):
+        if self.framing.target_margin <= self.framing.emergency_margin:
+            raise ValueError(
+                "autozoom.framing.target_margin must be greater than emergency_margin"
+            )
+        if self.zoom.min >= self.zoom.max:
+            raise ValueError("autozoom.zoom.min must be less than max")
+        if self.zoom.zoom_out_step < self.zoom.zoom_in_step:
+            raise ValueError(
+                "autozoom.zoom.zoom_out_step must be at least zoom_in_step"
+            )
+        if self.zoom.emergency_zoom_out_step < self.zoom.zoom_out_step:
+            raise ValueError(
+                "autozoom.zoom.emergency_zoom_out_step must be at least zoom_out_step"
+            )
+        if self.return_.mode != "previous":
+            raise ValueError("autozoom.return.mode currently only supports 'previous'")
+        return self
 
 
 class PtzAutotrackConfig(FrigateBaseModel):
@@ -127,8 +313,21 @@ class OnvifConfig(FrigateBaseModel):
         title="Autotracking",
         description="Automatically track moving objects and keep them centered in the frame using PTZ camera movements.",
     )
+    autozoom: AutoZoomConfig = Field(
+        default_factory=AutoZoomConfig,
+        title="Object Auto Zoom",
+        description="Zoom-only automatic object framing for fixed-view ONVIF cameras.",
+    )
     ignore_time_mismatch: bool = Field(
         default=False,
         title="Ignore time mismatch",
         description="Ignore time synchronization differences between camera and Frigate server for ONVIF communication.",
     )
+
+    @model_validator(mode="after")
+    def validate_controller_ownership(self):
+        if self.autotracking.enabled and self.autozoom.enabled:
+            raise ValueError(
+                "PTZ autotracking and Auto Zoom cannot be enabled on the same camera"
+            )
+        return self

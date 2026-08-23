@@ -49,6 +49,7 @@ import MediaSyncSettingsView from "@/views/settings/MediaSyncSettingsView";
 import RegionGridSettingsView from "@/views/settings/RegionGridSettingsView";
 import Go2RtcStreamsSettingsView from "@/views/settings/Go2RtcStreamsSettingsView";
 import SystemDetectionModelSettingsView from "@/views/settings/SystemDetectionModelSettingsView";
+import AutoZoomSettingsView from "@/views/settings/AutoZoomSettingsView";
 import {
   SingleSectionPage,
   type SettingsPageProps,
@@ -156,6 +157,7 @@ const allSettingsViews = [
   "cameraLpr",
   "cameraMqttConfig",
   "cameraOnvif",
+  "cameraAutoZoom",
   "cameraUi",
   "cameraTimestampStyle",
   "cameraManagement",
@@ -310,6 +312,7 @@ const CameraMqttConfigSettingsPage = createSectionPage("mqtt", "camera", {
 const CameraOnvifSettingsPage = createSectionPage("onvif", "camera", {
   showOverrideIndicator: false,
 });
+const CameraAutoZoomSettingsPage = AutoZoomSettingsView;
 const CameraUiSettingsPage = createSectionPage("ui", "camera", {
   showOverrideIndicator: false,
 });
@@ -378,6 +381,7 @@ const settingsGroups = [
       },
       { key: "cameraLpr", component: CameraLprSettingsPage },
       { key: "cameraOnvif", component: CameraOnvifSettingsPage },
+      { key: "cameraAutoZoom", component: CameraAutoZoomSettingsPage },
       { key: "cameraMqttConfig", component: CameraMqttConfigSettingsPage },
       { key: "cameraUi", component: CameraUiSettingsPage },
       {
@@ -489,6 +493,7 @@ const CAMERA_SELECT_BUTTON_PAGES = [
   "cameraLpr",
   "cameraMqttConfig",
   "cameraOnvif",
+  "cameraAutoZoom",
   "cameraUi",
   "cameraTimestampStyle",
   "masksAndZones",
@@ -517,6 +522,7 @@ const CAMERA_SECTION_MAPPING: Record<string, SettingsType> = {
   lpr: "cameraLpr",
   mqtt: "cameraMqttConfig",
   onvif: "cameraOnvif",
+  "onvif.autozoom": "cameraAutoZoom",
   ui: "cameraUi",
   timestamp_style: "cameraTimestampStyle",
 };

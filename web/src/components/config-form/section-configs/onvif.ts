@@ -14,6 +14,7 @@ const onvif: SectionConfigOverrides = {
       "autotracking",
     ],
     hiddenFields: [
+      "autozoom",
       "autotracking.enabled_in_config",
       "autotracking.movement_weights",
     ],

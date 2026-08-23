@@ -228,6 +228,8 @@ class OnvifController:
             and (
                 p.PTZConfiguration.DefaultContinuousPanTiltVelocitySpace is not None
                 or p.PTZConfiguration.DefaultContinuousZoomVelocitySpace is not None
+                or p.PTZConfiguration.DefaultRelativeZoomTranslationSpace is not None
+                or p.PTZConfiguration.DefaultAbsoluteZoomPositionSpace is not None
             )
         ]
 
@@ -353,8 +355,12 @@ class OnvifController:
             autotracking_config.enabled_in_config and autotracking_config.enabled
         )
 
-        # autotracking-only: status request and service capabilities
-        if autotracking_enabled:
+        # Status is also used by zoom-only Auto Zoom.  It deliberately does
+        # not depend on pan/tilt support.
+        if (
+            autotracking_enabled
+            or self.config.cameras[camera_name].onvif.autozoom.enabled
+        ):
             status_request = ptz.create_type("GetStatus")
             status_request.ProfileToken = profile.token
             self.cams[camera_name]["status_request"] = status_request
@@ -495,6 +501,25 @@ class OnvifController:
                             f"Disabling autotracking zooming for {camera_name}: Relative zoom not supported. Exception: {e}"
                         )
 
+            # A RelativeMove used solely for zoom must not contain a
+            # PanTilt translation. Several fixed cameras reject it even
+            # though they correctly advertise relative zoom.
+            if ptz_config is not None:
+                try:
+                    zoom_range = ptz_config.Spaces.RelativeZoomTranslationSpace[0]
+                    zoom_request = ptz.create_type("RelativeMove")
+                    zoom_request.ProfileToken = profile.token
+                    zoom_request.Translation = {
+                        "Zoom": {"x": 0, "space": zoom_range["URI"]}
+                    }
+                    self.cams[camera_name]["relative_zoom_request"] = zoom_request
+                except Exception as e:
+                    logger.debug(
+                        "Unable to build zoom-only RelativeMove for %s: %s",
+                        camera_name,
+                        e,
+                    )
+
         if configs.DefaultAbsoluteZoomPositionSpace:
             supported_features.append("zoom-a")
             if ptz_config is not None:
@@ -552,6 +577,45 @@ class OnvifController:
             )
 
         self.cams[camera_name]["features"] = supported_features
+        autozoom = self.config.cameras[camera_name].onvif.autozoom
+        if autozoom.mode.value == "absolute" and "zoom-a" in supported_features:
+            self.cams[camera_name]["autozoom_mode"] = "absolute"
+        elif autozoom.mode.value == "relative" and "zoom-r" in supported_features:
+            self.cams[camera_name]["autozoom_mode"] = "relative"
+        elif autozoom.mode.value == "auto" and "zoom-a" in supported_features:
+            self.cams[camera_name]["autozoom_mode"] = "absolute"
+        elif autozoom.mode.value == "auto" and "zoom-r" in supported_features:
+            self.cams[camera_name]["autozoom_mode"] = "relative"
+        else:
+            self.cams[camera_name]["autozoom_mode"] = None
+        if (
+            autozoom.mode.value != "auto"
+            and autozoom.mode.value != self.cams[camera_name]["autozoom_mode"]
+        ):
+            logger.warning(
+                "%s: requested Auto Zoom mode %s is not supported",
+                camera_name,
+                autozoom.mode.value,
+            )
+
+        # Seed a deterministic normalized level for a newly enabled Auto Zoom
+        # session. A failed status request is harmless: no camera movement is
+        # made and the controller will begin from its conservative minimum.
+        if autozoom.enabled and "absolute_zoom_range" in self.cams[camera_name]:
+            try:
+                status = await ptz.GetStatus(self.cams[camera_name]["status_request"])
+                self.ptz_metrics[camera_name].zoom_level.value = numpy.interp(
+                    status.Position.Zoom.x,
+                    [
+                        self.cams[camera_name]["absolute_zoom_range"]["XRange"]["Min"],
+                        self.cams[camera_name]["absolute_zoom_range"]["XRange"]["Max"],
+                    ],
+                    [0, 1],
+                )
+            except Exception as e:
+                logger.debug(
+                    "Unable to read initial Auto Zoom level for %s: %s", camera_name, e
+                )
         self.cams[camera_name]["init"] = True
         return True
 
@@ -765,8 +829,9 @@ class OnvifController:
         move_request = self.cams[camera_name]["absolute_move_request"]
 
         # function takes in 0 to 1 for zoom, interpolate to the values of the camera.
+        normalized_zoom = float(numpy.clip(zoom, 0, 1))
         zoom = numpy.interp(
-            zoom,
+            normalized_zoom,
             [0, 1],
             [
                 self.cams[camera_name]["absolute_zoom_range"]["XRange"]["Min"],
@@ -781,7 +846,83 @@ class OnvifController:
 
         await self.cams[camera_name]["ptz"].AbsoluteMove(move_request)
 
+        self.ptz_metrics[camera_name].zoom_level.value = normalized_zoom
+
         self.cams[camera_name]["active"] = False
+
+    async def zoom_absolute(
+        self, camera_name: str, target: float, speed: float = 1
+    ) -> bool:
+        """Move optical zoom to a normalized target without requiring pan/tilt."""
+        if (
+            camera_name not in self.cams
+            or "zoom-a" not in self.cams[camera_name]["features"]
+        ):
+            return False
+        try:
+            await self._zoom_absolute(
+                camera_name, float(numpy.clip(target, 0, 1)), speed
+            )
+            return True
+        except (Fault, ONVIFError, TransportError, Exception) as e:
+            logger.warning(
+                "Auto Zoom absolute command failed for %s: %s", camera_name, e
+            )
+            return False
+
+    async def zoom_relative(
+        self, camera_name: str, delta: float, speed: float = 1
+    ) -> bool:
+        """Issue a zoom-only RelativeMove. No PanTilt object is sent."""
+        cam = self.cams.get(camera_name)
+        if (
+            not cam
+            or "zoom-r" not in cam["features"]
+            or "relative_zoom_request" not in cam
+        ):
+            return False
+        if cam["active"]:
+            return False
+        try:
+            zoom_range = cam["relative_zoom_range"]["XRange"]
+            value = numpy.interp(
+                float(numpy.clip(delta, -1, 1)),
+                [-1, 1],
+                [zoom_range["Min"], zoom_range["Max"]],
+            )
+            request = cam["relative_zoom_request"]
+            request.Translation.Zoom.x = value
+            request.Speed = {"Zoom": {"x": speed}}
+            cam["active"] = True
+            self.ptz_metrics[camera_name].motor_stopped.clear()
+            self.ptz_metrics[camera_name].start_time.value = self.ptz_metrics[
+                camera_name
+            ].frame_time.value
+            self.ptz_metrics[camera_name].stop_time.value = 0
+            await cam["ptz"].RelativeMove(request)
+            self.ptz_metrics[camera_name].zoom_level.value = float(
+                numpy.clip(self.ptz_metrics[camera_name].zoom_level.value + delta, 0, 1)
+            )
+            cam["active"] = False
+            return True
+        except (Fault, ONVIFError, TransportError, Exception) as e:
+            logger.warning(
+                "Auto Zoom relative command failed for %s: %s", camera_name, e
+            )
+            cam["active"] = False
+            return False
+
+    async def zoom_stop(self, camera_name: str) -> None:
+        """Stop a zoom-only movement without changing pan/tilt ownership."""
+        if camera_name in self.cams:
+            request = self.cams[camera_name]["move_request"]
+            await self.cams[camera_name]["ptz"].Stop(
+                {"ProfileToken": request.ProfileToken, "PanTilt": False, "Zoom": True}
+            )
+
+    def get_zoom_level(self, camera_name: str) -> float:
+        """Return the latest normalized zoom reported by ONVIF status."""
+        return float(self.ptz_metrics[camera_name].zoom_level.value)
 
     async def _focus(self, camera_name: str, command: OnvifCommandEnum) -> None:
         if self.cams[camera_name]["active"]:
@@ -824,6 +965,22 @@ class OnvifController:
         if not self.cams[camera_name]["init"]:
             if not await self._init_onvif(camera_name):
                 return
+
+        # Commands entering through this public path are manual UI/MQTT PTZ
+        # actions.  Auto Zoom uses its dedicated actuator methods above, so it
+        # will never mistake its own commands for a user override.
+        if (
+            command != OnvifCommandEnum.init
+            and self.config.cameras[camera_name].onvif.autozoom.enabled
+        ):
+            timeout = self.config.cameras[
+                camera_name
+            ].onvif.autozoom.tracking.manual_override_timeout
+            self.cams[camera_name]["autozoom_manual_override_until"] = (
+                time.monotonic() + timeout
+            )
+            status = self.cams[camera_name].setdefault("autozoom_status", {})
+            status.update({"manual_override": True, "state": "paused"})
 
         try:
             if command == OnvifCommandEnum.init:
@@ -901,6 +1058,12 @@ class OnvifController:
                 "features": self.cams[camera_name]["features"],
                 "presets": list(self.cams[camera_name]["presets"].keys()),
                 "profiles": self.cams[camera_name].get("profiles", []),
+                "autozoom": {
+                    "supported": self.cams[camera_name].get("autozoom_mode")
+                    is not None,
+                    "resolved_mode": self.cams[camera_name].get("autozoom_mode"),
+                    "status": self.cams[camera_name].get("autozoom_status", {}),
+                },
             }
 
         if camera_name not in self.cams.keys() and camera_name in self.config.cameras:
@@ -930,6 +1093,15 @@ class OnvifController:
                         "name": camera_name,
                         "features": self.cams[camera_name]["features"],
                         "presets": list(self.cams[camera_name]["presets"].keys()),
+                        "profiles": self.cams[camera_name].get("profiles", []),
+                        "autozoom": {
+                            "supported": self.cams[camera_name].get("autozoom_mode")
+                            is not None,
+                            "resolved_mode": self.cams[camera_name].get(
+                                "autozoom_mode"
+                            ),
+                            "status": self.cams[camera_name].get("autozoom_status", {}),
+                        },
                     }
                 else:
                     logger.warning(f"ONVIF initialization failed for {camera_name}")
@@ -1054,9 +1226,10 @@ class OnvifController:
                     ].frame_time.value
                     self.ptz_metrics[camera_name].stop_time.value = 0
 
-            if (
+            if "absolute_zoom_range" in self.cams[camera_name] and (
                 self.config.cameras[camera_name].onvif.autotracking.zooming
                 != ZoomingModeEnum.disabled
+                or self.config.cameras[camera_name].onvif.autozoom.enabled
             ):
                 # store absolute zoom level as 0 to 1 interpolated from the values of the camera
                 self.ptz_metrics[camera_name].zoom_level.value = numpy.interp(

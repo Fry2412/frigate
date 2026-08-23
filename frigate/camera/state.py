@@ -91,6 +91,41 @@ class CameraState:
             frame_copy[mask_overlay] = [0, 0, 0]
 
         if draw_options.get("bounding_boxes"):
+            autozoom_session = getattr(
+                getattr(self.ptz_autotracker_thread, "autozoom", None),
+                "sessions",
+                {},
+            ).get(self.name)
+            if self.camera_config.onvif.autozoom.enabled:
+                frame_height, frame_width = frame_copy.shape[:2]
+                framing = self.camera_config.onvif.autozoom.framing
+                for margin, color in (
+                    (framing.target_margin, (0, 255, 255)),
+                    (framing.emergency_margin, (0, 0, 255)),
+                ):
+                    cv2.rectangle(
+                        frame_copy,
+                        (int(frame_width * margin), int(frame_height * margin)),
+                        (
+                            int(frame_width * (1 - margin)),
+                            int(frame_height * (1 - margin)),
+                        ),
+                        color,
+                        1,
+                    )
+                if autozoom_session:
+                    cv2.putText(
+                        frame_copy,
+                        f"AUTO ZOOM: {autozoom_session.state.value.upper()}  "
+                        f"Zoom: {autozoom_session.status.get('current_zoom', 0):.2f}  "
+                        f"Desired: {autozoom_session.status.get('desired_zoom', 0) or 0:.2f}",
+                        (10, 24),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (0, 255, 255),
+                        2,
+                    )
+
             # draw the bounding boxes on the frame
             for obj in tracked_objects.values():
                 if obj["frame_time"] == frame_time:
@@ -161,6 +196,15 @@ class CameraState:
                             (255, 255, 0),
                             2,
                         )
+
+                if (
+                    self.camera_config.onvif.autozoom.enabled
+                    and autozoom_session is not None
+                    and autozoom_session.target_id == obj["id"]
+                    and obj["frame_time"] == frame_time
+                ):
+                    thickness = 5
+                    color = (0, 255, 255)
 
                 # draw the bounding boxes on the frame
                 box = obj["box"]

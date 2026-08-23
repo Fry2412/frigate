@@ -19,6 +19,56 @@ Upon loss of tracking, Frigate will scan the region of the lost object for `time
 
 When tracking has ended, Frigate will return to the camera firmware's PTZ preset specified by the `return_preset` configuration entry.
 
+## Object Auto Zoom
+
+Object Auto Zoom is a separate zoom-only controller for fixed-view cameras with
+optical ONVIF zoom. It does **not** require pan, tilt, or FOV-relative PTZ
+support. Frigate locks one eligible object, predicts its four bounding-box
+edges, and only increases zoom when the predicted box remains inside the safe
+frame. Zooming out is deliberately faster and an emergency edge margin
+overrides normal hysteresis.
+
+Auto Zoom prefers ONVIF absolute zoom and falls back to zoom-only relative
+movement. It cannot be enabled together with PTZ Autotracking because both
+controllers could command camera zoom. A manual PTZ/zoom command pauses Auto
+Zoom for `manual_override_timeout` seconds.
+
+> While optical Auto Zoom is active the camera records a narrower field of
+> view. Activity outside the zoomed region may no longer be visible.
+
+```yaml
+cameras:
+  driveway:
+    onvif:
+      host: 192.168.1.50
+      user: admin
+      password: "{FRIGATE_ONVIF_PASSWORD}"
+      autozoom:
+        enabled: true
+        mode: auto # absolute when supported, otherwise relative
+        track: [person, car]
+        required_zones: [driveway]
+        framing:
+          preset: balanced
+          target_margin: 0.17
+          emergency_margin: 0.05
+        zoom:
+          min: 0.0
+          max: 0.8
+          zoom_in_step: 0.05
+          zoom_out_step: 0.12
+          emergency_zoom_out_step: 0.25
+        tracking:
+          activation_delay: 0.4
+          prediction_horizon: 0.75
+          reacquire_timeout: 1.5
+          settle_time: 0.35
+          manual_override_timeout: 30
+        return:
+          mode: previous
+          timeout: 5
+```
+
 ## Checking ONVIF camera support
 
 Frigate autotracking functions with PTZ cameras capable of relative movement within the field of view (as specified in the [ONVIF spec](https://www.onvif.org/specs/srv/ptz/ONVIF-PTZ-Service-Spec-v1712.pdf) as `RelativePanTiltTranslationSpace` having a `TranslationSpaceFov` entry).

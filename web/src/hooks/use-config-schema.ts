@@ -48,24 +48,30 @@ function extractSectionSchema(
 
   let sectionDef: RJSFSchema | null = null;
 
-  // For camera level, get section from CameraConfig in $defs
-  if (level === "camera") {
-    const cameraConfigDef = defs.CameraConfig;
-    if (cameraConfigDef?.properties) {
-      const props = cameraConfigDef.properties;
-      const sectionProp = props[sectionPath];
+  const resolveRef = (
+    value: RJSFSchema | undefined,
+  ): RJSFSchema | undefined => {
+    if (!value || typeof value !== "object" || !("$ref" in value)) return value;
+    const ref = value.$ref;
+    if (typeof ref !== "string") return value;
+    return (
+      defs[ref.replace(/^#\/\$defs\//, "").replace(/^#\/definitions\//, "")] ||
+      value
+    );
+  };
 
-      if (sectionProp && typeof sectionProp === "object") {
-        if ("$ref" in sectionProp && typeof sectionProp.$ref === "string") {
-          const refPath = sectionProp.$ref
-            .replace(/^#\/\$defs\//, "")
-            .replace(/^#\/definitions\//, "");
-          sectionDef = defs[refPath] || null;
-        } else {
-          sectionDef = sectionProp;
-        }
-      }
+  // For camera level, get section from CameraConfig in $defs. Support nested
+  // sections such as onvif.autozoom so feature settings can have a dedicated
+  // page without duplicating the parent schema.
+  if (level === "camera") {
+    let current: RJSFSchema | undefined = defs.CameraConfig;
+    for (const segment of sectionPath.split(".")) {
+      current = resolveRef(current);
+      current = (current as SchemaWithDefinitions | undefined)?.properties?.[
+        segment
+      ];
     }
+    sectionDef = resolveRef(current) || null;
   } else {
     // For global level, get from root properties
     if (schemaObj.properties) {

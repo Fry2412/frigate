@@ -158,6 +158,7 @@ class FrigateApp:
                 autotracker_enabled=self.config.cameras[
                     camera_name
                 ].onvif.autotracking.enabled
+                or self.config.cameras[camera_name].onvif.autozoom.enabled
             )
 
     def init_queues(self) -> None:

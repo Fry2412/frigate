@@ -38,6 +38,7 @@ import networking from "./section-configs/networking";
 import notifications from "./section-configs/notifications";
 import objects from "./section-configs/objects";
 import onvif from "./section-configs/onvif";
+import autozoom from "./section-configs/autozoom";
 import proxy from "./section-configs/proxy";
 import record from "./section-configs/record";
 import review from "./section-configs/review";
@@ -60,6 +61,7 @@ export const sectionConfigs: Record<string, SectionConfigOverrides> = {
   timestamp_style: timestampStyle,
   notifications,
   onvif,
+  "onvif.autozoom": autozoom,
   ffmpeg,
   audio_transcription: audioTranscription,
   birdseye,

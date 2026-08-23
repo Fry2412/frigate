@@ -78,6 +78,7 @@
     "cameraLpr": "License plate recognition",
     "cameraMqttConfig": "MQTT",
     "cameraOnvif": "ONVIF",
+    "cameraAutoZoom": "Object Auto Zoom",
     "cameraUi": "Camera UI",
     "cameraTimestampStyle": "Timestamp style",
     "cameraMqtt": "Camera MQTT",
@@ -95,6 +96,18 @@
     "maintenance": "Maintenance",
     "mediaSync": "Media sync",
     "regionGrid": "Region grid"
+  },
+  "autozoomPtzConflict": "PTZ Autotracking is enabled for this camera. Disable it before enabling Object Auto Zoom.",
+  "autozoom": {
+    "capabilities": "Camera capabilities",
+    "opticalZoom": "Optical zoom",
+    "absolute": "Absolute",
+    "relative": "Relative",
+    "selectedMode": "Selected mode",
+    "supported": "Supported",
+    "notSupported": "Not supported",
+    "checking": "Checking ONVIF capabilities…",
+    "unsupported": "Auto Zoom requires a camera with supported ONVIF zoom control."
   },
   "dialog": {
     "unsavedChanges": {
