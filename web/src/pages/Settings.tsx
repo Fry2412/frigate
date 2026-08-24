@@ -46,6 +46,7 @@ import UiSettingsView from "@/views/settings/UiSettingsView";
 import ProfilesView from "@/views/settings/ProfilesView";
 import FrigatePlusSettingsView from "@/views/settings/FrigatePlusSettingsView";
 import MediaSyncSettingsView from "@/views/settings/MediaSyncSettingsView";
+import FryTrainerGateSettingsView from "@/views/settings/FryTrainerGateSettingsView";
 import RegionGridSettingsView from "@/views/settings/RegionGridSettingsView";
 import Go2RtcStreamsSettingsView from "@/views/settings/Go2RtcStreamsSettingsView";
 import SystemDetectionModelSettingsView from "@/views/settings/SystemDetectionModelSettingsView";
@@ -170,6 +171,7 @@ const allSettingsViews = [
   "frigateplus",
   "mediaSync",
   "regionGrid",
+  "frytrainergate",
 ] as const;
 type SettingsType = (typeof allSettingsViews)[number];
 
@@ -468,6 +470,10 @@ const settingsGroups = [
       { key: "mediaSync", component: MediaSyncSettingsView },
       { key: "regionGrid", component: RegionGridSettingsView },
     ],
+  },
+  {
+    label: "training",
+    items: [{ key: "frytrainergate", component: FryTrainerGateSettingsView }],
   },
 ];
 

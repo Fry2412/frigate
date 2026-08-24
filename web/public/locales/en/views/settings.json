@@ -93,6 +93,8 @@
     "debug": "Debug",
     "frigateplus": "Frigate+",
     "maintenance": "Maintenance",
+    "training": "Model training",
+    "frytrainergate": "FryTrainerGate",
     "mediaSync": "Media sync",
     "regionGrid": "Region grid"
   },
