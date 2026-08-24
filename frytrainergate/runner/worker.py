@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-import sys
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ from frytrainergate.shared.protocol import (
     ProgressUpdate,
 )
 
+from .backends import get_backend
 from .client import RunnerClient
 
 logger = logging.getLogger("frytrainergate.runner")
@@ -92,6 +92,7 @@ class TrainingWorker:
             spec_path.write_text(
                 json.dumps(config, separators=(",", ":")), encoding="utf-8"
             )
+            backend = get_backend(str(job.get("backend", "")))
             self.client.progress(
                 job_id,
                 ProgressUpdate(
@@ -103,17 +104,7 @@ class TrainingWorker:
                 ),
             )
             process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "frytrainergate.runner.test_backend",
-                    "--dataset",
-                    str(dataset_dir),
-                    "--spec",
-                    str(spec_path),
-                    "--output",
-                    str(artifact_path),
-                ],
+                backend.command(dataset_dir, spec_path, artifact_path),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
