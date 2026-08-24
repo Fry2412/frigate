@@ -123,7 +123,10 @@ class FryTrainerGateSecurityTests(unittest.TestCase):
             f"/api/v1/jobs/{job_id}/dataset", headers=self.auth(token)
         )
         self.assertEqual(dataset_response.status_code, 200)
-        self.assertIn(b"manifest.json", dataset_response.content)
+        with tarfile.open(
+            fileobj=io.BytesIO(dataset_response.content), mode="r:gz"
+        ) as archive:
+            self.assertIn("manifest.json", archive.getnames())
         self.assertEqual(
             self.runner.post(
                 f"/api/v1/jobs/{job_id}/progress",

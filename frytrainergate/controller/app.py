@@ -214,11 +214,13 @@ def create_runner_app(
         }
 
     @app.post("/api/v1/runners/heartbeat")
-    def heartbeat(request: Request, body: Any) -> dict[str, Any]:
+    def heartbeat(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         from frytrainergate.shared.protocol import HeartbeatRequest
 
         runner = runner_from_request(request, "runner:heartbeat")
-        parsed = HeartbeatRequest.model_validate(body)
+        parsed = HeartbeatRequest.model_validate(body or {})
         try:
             return service.update_heartbeat(runner, parsed, client_ip(request))
         except ValueError as error:
