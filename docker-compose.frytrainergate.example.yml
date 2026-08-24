@@ -1,0 +1,49 @@
+services:
+  # Existing Frygate service. Keep it on the same private Docker network.
+  frigate:
+    image: ghcr.io/fry2412/frigate:feature-frytrainergate
+    networks:
+      - frigate
+    environment:
+      FRYTRAINERGATE_URL: http://frytrainergate:8974
+      FRYTRAINERGATE_SERVICE_TOKEN_FILE: /run/secrets/frytrainergate_service_token
+    secrets:
+      - frytrainergate_service_token
+
+  frytrainergate:
+    image: ghcr.io/fry2412/frigate-frytrainergate:branch-feat-frytrainergate
+    restart: unless-stopped
+    networks:
+      - frigate
+    volumes:
+      - ./frytrainergate-data:/data
+    environment:
+      FRYTRAINERGATE_SERVICE_TOKEN_FILE: /run/secrets/frytrainergate_service_token
+      # Provide a stable secret through a Docker secret in production.
+      FRYTRAINERGATE_SESSION_SECRET_FILE: /run/secrets/frytrainergate_session_secret
+      FRYTRAINERGATE_RUNNER_PORT: "8972"
+      FRYTRAINERGATE_ADMIN_PORT: "8974"
+    secrets:
+      - frytrainergate_service_token
+      - frytrainergate_session_secret
+
+  # Cloudflare Tunnel should route runner.example.tld to
+  # http://frytrainergate:8972. Do not route the admin port.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    networks:
+      - frigate
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+
+networks:
+  frigate:
+    name: frigate
+
+secrets:
+  frytrainergate_service_token:
+    file: ./secrets/frytrainergate_service_token
+  frytrainergate_session_secret:
+    file: ./secrets/frytrainergate_session_secret

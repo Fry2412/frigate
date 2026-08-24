@@ -1,0 +1,42 @@
+name: FryTrainerGate tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
+      - "feat/**"
+    paths:
+      - "frytrainergate/**"
+      - "frigate/api/training.py"
+      - "frigate/api/fastapi_app.py"
+      - "frigate/api/defs/tags.py"
+      - ".github/workflows/frytrainergate-tests.yml"
+  pull_request:
+    paths:
+      - "frytrainergate/**"
+      - "frigate/api/training.py"
+      - "frigate/api/fastapi_app.py"
+      - "frigate/api/defs/tags.py"
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install FryTrainerGate dependencies
+        run: python -m pip install -r frytrainergate/controller/requirements.txt -r frytrainergate/runner/requirements.txt
+      - name: Run FryTrainerGate tests
+        run: python -m unittest discover -s frytrainergate/tests -p 'test_*.py'
+      - name: Check FryTrainerGate formatting and lint
+        run: |
+          python -m pip install ruff
+          ruff format --check frytrainergate
+          ruff check frytrainergate
+
