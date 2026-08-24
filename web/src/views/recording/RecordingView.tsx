@@ -274,6 +274,13 @@ export function RecordingView({
   const [currentTime, setCurrentTime] = useState<number>(startTime);
   const [playerTime, setPlayerTime] = useState(startTime);
   const [isPlaybackPlaying, setIsPlaybackPlaying] = useState(true);
+  // The selected main camera is a UI concern. The sync master may temporarily
+  // be another selected camera when the visible main camera has a recording
+  // gap (for example after a short Wi-Fi interruption).
+  const syncMasterCameraRef = useRef(mainCamera);
+  const syncMasterSampleRef = useRef<
+    { timestamp: number; playbackTime: number } | undefined
+  >();
 
   const synchronizeMulticam = useCallback(
     (timestamp: number, playing: boolean, sourceCamera?: string) => {
@@ -289,19 +296,57 @@ export function RecordingView({
   );
 
   const handleMasterTimestampUpdate = useCallback(
-    (timestamp: number) => {
-      setPlayerTime(timestamp);
-      setCurrentTime(timestamp);
+    (camera: string, timestamp: number, playbackTime: number) => {
+      if (camera !== syncMasterCameraRef.current) {
+        return;
+      }
+
+      const previousSample = syncMasterSampleRef.current;
+      let synchronizedTimestamp = timestamp;
+
+      if (previousSample) {
+        const mediaElapsed = playbackTime - previousSample.playbackTime;
+        const timelineElapsed = timestamp - previousSample.timestamp;
+
+        // A VOD playlist removes missing media from its duration. getProgress
+        // therefore jumps over a recording gap. Keep the group on continuous
+        // wall-clock time when another selected camera actually has footage.
+        if (mediaElapsed > 0 && timelineElapsed > mediaElapsed + 0.75) {
+          const expectedTimestamp = previousSample.timestamp + mediaElapsed;
+          const fallbackCamera = multicamCameras.find(
+            (candidate) =>
+              candidate !== camera &&
+              multicamControllerRefs.current[candidate]?.hasRecordingAtTime(
+                expectedTimestamp,
+              ),
+          );
+
+          if (fallbackCamera) {
+            syncMasterCameraRef.current = fallbackCamera;
+            syncMasterSampleRef.current = undefined;
+            synchronizedTimestamp = expectedTimestamp;
+          }
+        }
+      }
+
+      if (syncMasterCameraRef.current === camera) {
+        syncMasterSampleRef.current = { timestamp, playbackTime };
+      }
+
+      setPlayerTime(synchronizedTimestamp);
+      setCurrentTime(synchronizedTimestamp);
       Object.values(previewRefs.current ?? {}).forEach((prev) =>
-        prev.scrubToTimestamp(Math.floor(timestamp)),
+        prev.scrubToTimestamp(Math.floor(synchronizedTimestamp)),
       );
       synchronizeMulticam(
-        timestamp,
-        mainControllerRef.current?.isPlaying() ?? isPlaybackPlaying,
-        mainCamera,
+        synchronizedTimestamp,
+        multicamControllerRefs.current[
+          syncMasterCameraRef.current
+        ]?.isPlaying() ?? isPlaybackPlaying,
+        syncMasterCameraRef.current === camera ? camera : undefined,
       );
     },
-    [isPlaybackPlaying, mainCamera, synchronizeMulticam],
+    [isPlaybackPlaying, multicamCameras, synchronizeMulticam],
   );
 
   const handlePlaybackStateChange = useCallback(
@@ -471,6 +516,11 @@ export function RecordingView({
     mainControllerRef.current =
       multicamControllerRefs.current[mainCamera] ?? null;
   }, [mainCamera, multicamCameras]);
+
+  useEffect(() => {
+    syncMasterCameraRef.current = mainCamera;
+    syncMasterSampleRef.current = undefined;
+  }, [mainCamera]);
 
   useEffect(() => {
     Object.keys(multicamControllerRefs.current).forEach((camera) => {
@@ -1027,7 +1077,13 @@ export function RecordingView({
                     exportMode != "select" && debugReplayMode != "select"
                   }
                   fullscreen={fullscreen}
-                  onTimestampUpdate={handleMasterTimestampUpdate}
+                  onTimestampUpdate={(timestamp, playbackTime) =>
+                    handleMasterTimestampUpdate(
+                      mainCamera,
+                      timestamp,
+                      playbackTime,
+                    )
+                  }
                   onPlaybackStateChange={handlePlaybackStateChange}
                   onPlaybackRateChange={handlePlaybackRateChange}
                   onClipEnded={onClipEnded}
@@ -1104,10 +1160,12 @@ export function RecordingView({
                           debugReplayMode != "select"
                         }
                         fullscreen={fullscreen}
-                        onTimestampUpdate={
-                          camera === mainCamera
-                            ? handleMasterTimestampUpdate
-                            : undefined
+                        onTimestampUpdate={(timestamp, playbackTime) =>
+                          handleMasterTimestampUpdate(
+                            camera,
+                            timestamp,
+                            playbackTime,
+                          )
                         }
                         onPlaybackStateChange={(playing) =>
                           handlePlaybackStateChange(playing, camera)

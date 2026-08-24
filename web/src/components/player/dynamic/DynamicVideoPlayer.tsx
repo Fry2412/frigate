@@ -46,7 +46,7 @@ type DynamicVideoPlayerProps = {
   compactControls?: boolean;
   onActivateControls?: () => void;
   onControllerReady: (controller: DynamicVideoController) => void;
-  onTimestampUpdate?: (timestamp: number) => void;
+  onTimestampUpdate?: (timestamp: number, playbackTime: number) => void;
   onPlaybackStateChange?: (playing: boolean) => void;
   onPlaybackRateChange?: (rate: number) => void;
   onClipEnded?: () => void;
@@ -187,7 +187,7 @@ export default function DynamicVideoPlayer({
       }
 
       if (controller && onTimestampUpdate) {
-        onTimestampUpdate(controller.getProgress(time));
+        onTimestampUpdate(controller.getProgress(time), time);
       }
     },
     [controller, onTimestampUpdate, isBuffering, isLoading, isScrubbing],

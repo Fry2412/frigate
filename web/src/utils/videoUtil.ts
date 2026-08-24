@@ -55,26 +55,22 @@ export function calculateSeekPosition(
 
   let seekSeconds = 0;
 
-  (recordings || []).every((segment) => {
-    // if the next segment is past the desired time, stop calculating
-    if (segment.start_time > timestamp) {
-      return false;
+  for (const segment of recordings) {
+    if (timestamp < segment.start_time) {
+      // The requested wall-clock time falls into a recording gap. The VOD
+      // playlist is a concatenation of media segments, so treating the gap as
+      // media duration would incorrectly seek to the next clip.
+      return undefined;
     }
 
-    if (segment.end_time < timestamp) {
-      // Add the full duration of this segment
-      seekSeconds += segment.end_time - segment.start_time;
-      return true;
+    if (timestamp <= segment.end_time) {
+      seekSeconds += timestamp - segment.start_time;
+      seekSeconds -= inpointOffset;
+      return seekSeconds >= 0 ? seekSeconds : undefined;
     }
 
-    // We're in this segment - calculate position within it
-    seekSeconds +=
-      segment.end_time - segment.start_time - (segment.end_time - timestamp);
-    return true;
-  });
+    seekSeconds += segment.end_time - segment.start_time;
+  }
 
-  // Adjust for HLS inpoint offset
-  seekSeconds -= inpointOffset;
-
-  return seekSeconds >= 0 ? seekSeconds : undefined;
+  return undefined;
 }

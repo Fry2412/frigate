@@ -171,9 +171,9 @@ export class DynamicVideoController {
     time: number,
     play: boolean,
     toleranceSeconds: number = 0.35,
-  ) {
+  ): boolean {
     if (!this.recordings.length) {
-      return;
+      return false;
     }
 
     const seekSeconds = calculateSeekPosition(
@@ -183,7 +183,12 @@ export class DynamicVideoController {
     );
 
     if (seekSeconds === undefined) {
-      return;
+      // Do not let a player keep advancing through the concatenated VOD
+      // playlist while the shared timeline is inside a gap for this camera.
+      // It will be resumed automatically as soon as a later shared timestamp
+      // belongs to one of its recording segments.
+      this.playerController.pause();
+      return false;
     }
 
     if (
@@ -201,6 +206,8 @@ export class DynamicVideoController {
     } else if (this.isPlaying()) {
       this.playerController.pause();
     }
+
+    return true;
   }
 
   hasRecordingAtTime(time: number): boolean {
