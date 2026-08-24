@@ -280,7 +280,7 @@ export function RecordingView({
   const syncMasterCameraRef = useRef(mainCamera);
   const syncMasterSampleRef = useRef<
     { timestamp: number; playbackTime: number } | undefined
-  >();
+  >(undefined);
 
   const synchronizeMulticam = useCallback(
     (timestamp: number, playing: boolean, sourceCamera?: string) => {
