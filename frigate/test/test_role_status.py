@@ -24,11 +24,11 @@ class TestRoleStatus(unittest.TestCase):
             requestor=requestor,
             config=SimpleNamespace(name="camera"),
             detect_status=RoleStatus(requestor, "camera/status/detect", 10),
-            record_status=RoleStatus(requestor, "camera/status/record", 10),
+            record_status={"main": RoleStatus(requestor, "camera/status/record", 10)},
         )
-        watchdog.record_status.send("online", 1)
+        watchdog.record_status["main"].send("online", 1)
         CameraWatchdog._send_roles_offline(watchdog, [CameraRoleEnum.record], 2)
-        watchdog.record_status.send("online", 3)
+        watchdog.record_status["main"].send("online", 3)
         self.assertEqual(
             [call.args[1] for call in requestor.send_data.call_args_list],
             ["online", "offline", "online"],

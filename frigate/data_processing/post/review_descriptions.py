@@ -11,21 +11,25 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-from peewee import DoesNotExist
-from titlecase import titlecase
-
 from frigate.comms.embeddings_updater import EmbeddingsRequestEnum
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
 from frigate.config.camera import CameraConfig
 from frigate.config.camera.review import GenAIReviewConfig, ImageSourceEnum
-from frigate.const import CACHE_DIR, CLIPS_DIR, UPDATE_REVIEW_DESCRIPTION
+from frigate.const import (
+    CACHE_DIR,
+    CLIPS_DIR,
+    STREAM_TYPE_MAIN,
+    UPDATE_REVIEW_DESCRIPTION,
+)
 from frigate.data_processing.types import PostProcessDataEnum
 from frigate.genai import GenAIClient
 from frigate.genai.manager import GenAIClientManager
 from frigate.models import Recordings, ReviewSegment
 from frigate.util.builtin import EventsPerSecond, InferenceSpeed
 from frigate.util.image import get_image_from_recording
+from peewee import DoesNotExist
+from titlecase import titlecase
 
 from ..post.api import PostProcessorApi
 from ..types import DataProcessorMetrics
@@ -415,6 +419,7 @@ class ReviewDescriptionProcessor(PostProcessorApi):
                     )
                     .where((ts >= Recordings.start_time) & (ts <= Recordings.end_time))
                     .where(Recordings.camera == camera)
+                    .where(Recordings.stream_type == STREAM_TYPE_MAIN)
                     .order_by(Recordings.start_time.desc())
                     .limit(1)
                     .get()

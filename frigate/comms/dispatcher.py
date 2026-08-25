@@ -5,6 +5,8 @@ import json
 import logging
 from typing import Any, Callable, Optional, cast
 
+from peewee import IntegrityError
+
 from frigate.camera import PTZMetrics
 from frigate.camera.activity_manager import AudioActivityManager, CameraActivityManager
 from frigate.comms.base_communicator import Communicator
@@ -144,7 +146,21 @@ class Dispatcher:
             restart_frigate()
 
         def handle_insert_many_recordings() -> None:
-            Recordings.insert_many(payload).execute()
+            try:
+                Recordings.insert_many(payload).execute()
+            except IntegrityError:
+                logger.warning(
+                    "Batch recording insert failed, inserting rows individually"
+                )
+
+                for recording in payload:
+                    try:
+                        Recordings.insert(recording).execute()
+                    except IntegrityError:
+                        logger.warning(
+                            "Skipping recording that is already stored: %s",
+                            recording.get(Recordings.path.name),
+                        )
 
         def handle_request_region_grid() -> Any:
             camera = payload
