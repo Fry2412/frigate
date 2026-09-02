@@ -383,7 +383,10 @@ record:
     timelapse_args: "-vf setpts=PTS/60 -r 25"
 ```
 
+The request body accepts `ffmpeg_input_args` and `ffmpeg_output_args` to control encoding, frame rate, filters, and other FFmpeg options. If neither is provided, Frigate defaults to time-lapse output settings (25x speed, 30 FPS) with audio removed (`-an`). When providing your own `ffmpeg_input_args`, include `-an` if you want audio stripped from the export.
+
 :::tip
+
 
 When using `hwaccel_args`, hardware encoding is used for timelapse generation. This setting can be overridden for a specific camera (e.g., when camera resolution exceeds hardware encoder limits); set the camera-level export hwaccel_args with the appropriate settings. Using an unrecognized value or empty string will fall back to software encoding (libx264).
 

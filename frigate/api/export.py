@@ -66,6 +66,8 @@ from frigate.jobs.export import (
 from frigate.models import Export, ExportCase, Previews, Recordings
 from frigate.record.export import (
     DEFAULT_TIME_LAPSE_FFMPEG_ARGS,
+    DEFAULT_TIME_LAPSE_FFMPEG_INPUT_ARGS,
+
     PlaybackSourceEnum,
     validate_ffmpeg_args,
 )
@@ -843,7 +845,7 @@ def export_recording_custom(
 
     # Set default values if not provided (timelapse defaults)
     if ffmpeg_input_args is None:
-        ffmpeg_input_args = ""
+        ffmpeg_input_args = DEFAULT_TIME_LAPSE_FFMPEG_INPUT_ARGS
 
     if ffmpeg_output_args is None:
         ffmpeg_output_args = DEFAULT_TIME_LAPSE_FFMPEG_ARGS
