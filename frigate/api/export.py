@@ -11,10 +11,6 @@ from typing import List, Optional
 import psutil
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from pathvalidate import sanitize_filepath
-from peewee import DoesNotExist
-from playhouse.shortcuts import model_to_dict
-
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
@@ -67,11 +63,15 @@ from frigate.models import Export, ExportCase, Previews, Recordings
 from frigate.record.export import (
     DEFAULT_TIME_LAPSE_FFMPEG_ARGS,
     DEFAULT_TIME_LAPSE_FFMPEG_INPUT_ARGS,
-
+    ChaptersEnum,
+    ExportStreamEnum,
     PlaybackSourceEnum,
     validate_ffmpeg_args,
 )
 from frigate.util.time import is_current_hour
+from pathvalidate import sanitize_filepath
+from peewee import DoesNotExist
+from playhouse.shortcuts import model_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -139,16 +139,24 @@ def _sanitize_existing_image(
     return existing_image, None
 
 
+def _no_recordings_message(stream: ExportStreamEnum) -> str:
+    if stream == ExportStreamEnum.auto:
+        return "No recordings found for time range"
+
+    return f"No {stream.value} stream recordings found for time range"
+
+
 def _validate_export_source(
     camera_name: str,
     start_time: float,
     end_time: float,
     playback_source: PlaybackSourceEnum,
-) -> Optional[str]:
+    stream: ExportStreamEnum = ExportStreamEnum.auto,
+) -> str | None:
+
     if playback_source == PlaybackSourceEnum.recordings:
-        recordings_count = (
-            Recordings.select()
-            .where(
+        query = Recordings.select().where(
+            (
                 Recordings.start_time.between(start_time, end_time)
                 | Recordings.end_time.between(start_time, end_time)
                 | (
@@ -156,12 +164,16 @@ def _validate_export_source(
                     & (end_time < Recordings.end_time)
                 )
             )
-            .where(Recordings.camera == camera_name)
-            .count()
+            & (Recordings.camera == camera_name)
         )
 
-        if recordings_count <= 0:
-            return "No recordings found for time range"
+        # a pinned export reads only that stream, so the other stream's
+        # coverage must not make the range look exportable
+        if stream != ExportStreamEnum.auto:
+            query = query.where(Recordings.stream_type == stream.value)
+
+        if query.count() <= 0:
+            return _no_recordings_message(stream)
 
         return None
 
@@ -185,6 +197,7 @@ def _validate_export_source(
 def _get_item_recording_export_errors(
     request: Request,
     items: list[BatchExportItem],
+    stream: ExportStreamEnum = ExportStreamEnum.auto,
 ) -> dict[int, str]:
     """Return {item_index: error message} for items with invalid state.
 
@@ -214,19 +227,19 @@ def _get_item_recording_export_errors(
         min_start = min(r[1] for r in indexed_ranges)
         max_end = max(r[2] for r in indexed_ranges)
 
-        recording_ranges = list(
-            Recordings.select(Recordings.start_time, Recordings.end_time)
-            .where(
-                Recordings.camera == camera_name,
-                Recordings.start_time.between(min_start, max_end)
-                | Recordings.end_time.between(min_start, max_end)
-                | (
-                    (min_start > Recordings.start_time)
-                    & (max_end < Recordings.end_time)
-                ),
-            )
-            .iterator()
+        query = Recordings.select(Recordings.start_time, Recordings.end_time).where(
+            Recordings.camera == camera_name,
+            Recordings.start_time.between(min_start, max_end)
+            | Recordings.end_time.between(min_start, max_end)
+            | ((min_start > Recordings.start_time) & (max_end < Recordings.end_time)),
         )
+
+        # a pinned batch reads only that stream, so the other stream's
+        # coverage must not make an item look exportable
+        if stream != ExportStreamEnum.auto:
+            query = query.where(Recordings.stream_type == stream.value)
+
+        recording_ranges = list(query.iterator())
 
         for index, start_time, end_time in indexed_ranges:
             has_recording = any(
@@ -238,7 +251,7 @@ def _get_item_recording_export_errors(
                 for rec in recording_ranges
             )
             if not has_recording:
-                errors[index] = "No recordings found for time range"
+                errors[index] = _no_recordings_message(stream)
 
     return errors
 
@@ -254,6 +267,8 @@ def _build_export_job(
     ffmpeg_input_args: Optional[str] = None,
     ffmpeg_output_args: Optional[str] = None,
     cpu_fallback: bool = False,
+    chapters: ChaptersEnum | None = None,
+    stream: ExportStreamEnum = ExportStreamEnum.auto,
 ) -> ExportJob:
     return ExportJob(
         id=_generate_export_id(camera_name),
@@ -267,6 +282,8 @@ def _build_export_job(
         ffmpeg_input_args=ffmpeg_input_args,
         ffmpeg_output_args=ffmpeg_output_args,
         cpu_fallback=cpu_fallback,
+        chapters=chapters,
+        stream=stream,
     )
 
 
@@ -529,7 +546,7 @@ def export_recordings_batch(
             return image_validation_error
         sanitized_images.append(existing_image)
 
-    item_errors = _get_item_recording_export_errors(request, body.items)
+    item_errors = _get_item_recording_export_errors(request, body.items, body.stream)
 
     queueable_indexes = [
         index for index in range(len(body.items)) if index not in item_errors
@@ -595,6 +612,10 @@ def export_recordings_batch(
             sanitized_images[index],
             PlaybackSourceEnum.recordings,
             export_case_id,
+            chapters=request.app.frigate_config.cameras[
+                item.camera
+            ].record.export.chapters,
+            stream=body.stream,
         )
         try:
             start_export_job(request.app.frigate_config, export_job)
@@ -694,6 +715,7 @@ def export_recording(
         start_time,
         end_time,
         playback_source,
+        body.stream,
     )
     if source_error is not None:
         return JSONResponse(
@@ -709,6 +731,9 @@ def export_recording(
         existing_image,
         playback_source,
         export_case_id,
+        chapters=body.chapters
+        or request.app.frigate_config.cameras[camera_name].record.export.chapters,
+        stream=body.stream,
     )
     try:
         start_export_job(request.app.frigate_config, export_job)
@@ -842,7 +867,6 @@ def export_recording_custom(
                         status_code=400,
                     )
 
-
     # Set default values if not provided (timelapse defaults)
     if ffmpeg_input_args is None:
         ffmpeg_input_args = DEFAULT_TIME_LAPSE_FFMPEG_INPUT_ARGS
@@ -861,6 +885,7 @@ def export_recording_custom(
         ffmpeg_input_args,
         ffmpeg_output_args,
         cpu_fallback,
+        stream=body.stream,
     )
     try:
         start_export_job(request.app.frigate_config, export_job)
@@ -1004,3 +1029,21 @@ def bulk_reassign_exports(body: ExportBulkReassignBody):
         },
         status_code=200,
     )
+
+
+def _unique_archive_name(export: Export, used: set[str]) -> str:
+    """Zip entry name for an export, de-duplicated within the archive.
+
+    The on-disk name is the one the user sees either way: renaming an export
+    renames its file, so a zip entry and an individual download can't drift.
+    """
+    source = Path(export.video_path)
+    candidate = source.name
+
+    counter = 1
+    while candidate in used:
+        candidate = f"{source.stem}_{counter}{source.suffix}"
+        counter += 1
+
+    used.add(candidate)
+    return candidate

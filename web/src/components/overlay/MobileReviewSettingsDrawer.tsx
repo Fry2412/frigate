@@ -31,7 +31,8 @@ import SaveExportOverlay from "./SaveExportOverlay";
 import { isIOS, isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { StartExportResponse } from "@/types/export";
+import { ExportStreamSelection, StartExportResponse } from "@/types/export";
+
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import { FaTriangleExclamation } from "react-icons/fa6";
 import { MdHighQuality } from "react-icons/md";
@@ -135,6 +136,8 @@ export default function MobileReviewSettingsDrawer({
   );
   const [singleNewCaseName, setSingleNewCaseName] = useState("");
   const [singleNewCaseDescription, setSingleNewCaseDescription] = useState("");
+  const [stream, setStream] = useState<ExportStreamSelection>("auto");
+
   const [isStartingExport, setIsStartingExport] = useState(false);
   const onStartExport = useCallback(async () => {
     if (isStartingExport) {
@@ -186,6 +189,7 @@ export default function MobileReviewSettingsDrawer({
           source: "recordings",
           name,
           export_case_id: exportCaseId,
+          stream,
         },
       );
 
@@ -203,6 +207,8 @@ export default function MobileReviewSettingsDrawer({
       setSelectedCaseId(undefined);
       setSingleNewCaseName("");
       setSingleNewCaseDescription("");
+      setStream("auto");
+
       setRange(undefined);
       setMode("none");
       return true;
@@ -235,6 +241,7 @@ export default function MobileReviewSettingsDrawer({
     selectedCaseId,
     singleNewCaseDescription,
     singleNewCaseName,
+    stream,
     setRange,
     setMode,
     t,
@@ -407,6 +414,7 @@ export default function MobileReviewSettingsDrawer({
   } else if (drawerMode == "export") {
     content = (
       <ExportContent
+        camera={camera}
         latestTime={latestTime}
         currentTime={currentTime}
         range={range}
@@ -415,9 +423,11 @@ export default function MobileReviewSettingsDrawer({
         singleNewCaseName={singleNewCaseName}
         singleNewCaseDescription={singleNewCaseDescription}
         activeTab={exportTab}
+        stream={stream}
         isStartingExport={isStartingExport}
         onStartExport={onStartExport}
         setActiveTab={setExportTab}
+        setStream={setStream}
         setName={setName}
         setSelectedCaseId={setSelectedCaseId}
         setSingleNewCaseName={setSingleNewCaseName}
@@ -436,6 +446,8 @@ export default function MobileReviewSettingsDrawer({
           setSelectedCaseId(undefined);
           setSingleNewCaseName("");
           setSingleNewCaseDescription("");
+          setStream("auto");
+
           setExportTab("export");
           setDrawerMode("select");
         }}

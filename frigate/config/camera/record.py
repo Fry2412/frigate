@@ -86,7 +86,17 @@ class RecordPreviewConfig(FrigateBaseModel):
     )
 
 
+class ChaptersEnum(str, Enum):
+    none = "none"
+    recording_segments = "recording_segments"
+    review_items = "review_items"
+
+
 class RecordExportConfig(FrigateBaseModel):
+    chapters: ChaptersEnum = Field(
+        default=ChaptersEnum.review_items,
+        title="Chapter metadata to embed in exported recordings",
+    )
     hwaccel_args: Union[str, list[str]] = Field(
         default="auto",
         title="Export hwaccel args",

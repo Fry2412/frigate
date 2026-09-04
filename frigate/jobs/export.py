@@ -9,15 +9,19 @@ from pathlib import Path
 from queue import Full, Queue
 from typing import Any, Callable, Optional
 
-from peewee import DoesNotExist
-
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
+from frigate.config.camera.record import ChaptersEnum
 from frigate.const import UPDATE_JOB_STATE
 from frigate.jobs.job import Job
 from frigate.models import Export
-from frigate.record.export import PlaybackSourceEnum, RecordingExporter
+from frigate.record.export import (
+    ExportStreamEnum,
+    PlaybackSourceEnum,
+    RecordingExporter,
+)
 from frigate.types import JobStatusTypesEnum
+from peewee import DoesNotExist
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,9 @@ class ExportJob(Job):
     ffmpeg_input_args: Optional[str] = None
     ffmpeg_output_args: Optional[str] = None
     cpu_fallback: bool = False
+    chapters: ChaptersEnum | None = None
+    stream: ExportStreamEnum = ExportStreamEnum.auto
+
     current_step: str = "queued"
     progress_percent: float = 0.0
 
@@ -343,6 +350,8 @@ class ExportJobManager:
             job.ffmpeg_input_args,
             job.ffmpeg_output_args,
             job.cpu_fallback,
+            job.chapters,
+            job.stream,
             on_progress=self._make_progress_callback(job),
         )
 

@@ -12,15 +12,15 @@ This is a topic integration, not a replay of the upstream commit gap.
 | Recording/export creation timestamps (#23239) | `26d31300e` | `be85713ac` |
 | Export queue, batch selection and case actions (#22867) | `e7e6f8768` | `ae06944da`, retained fork auth |
 | Export progress (#22915) | `74fcd720d` | `5744f0698` |
-| Substream capture, coverage and adaptive playback (#24009) | `1498231eb` | Adapted for custom multicamera controllers; verification in progress |
-| VOD startup/keyframe performance (#24011) | `e77155a4f` | Pending |
-| Recording recovery and substream fixes (#24072) | `53fb6c8da` | Pending |
-| Mixed main/sub recording export (#24193) | `82be9fff5` | Pending |
+| Substream capture, coverage and adaptive playback (#24009) | `1498231eb` | `aaef126ba`, adapted for custom multicamera controllers |
+| VOD startup/keyframe performance (#24011) | `e77155a4f` | `7d9657423` |
+| Recording recovery and substream fixes (#24072) | `53fb6c8da` | `62bd1115d` |
+| Mixed main/sub recording export (#24193) | `82be9fff5` | Adapted; export verification in progress |
 | Live technology choice (#24374) | `64d6366ac` | Pending dependency audit |
 | Streaming fixes (#24498) | `a1c8bf99a` | Pending |
 | Camera-group live grid (#24461) | `0977fa5e1` | Pending dependency audit |
 | Auto live quality/transcoding (#24519) | `2754f788c` | Pending dependency audit |
-| Role health/coupling (#24522, #24544) | `321e78e65`, `f3723698c` | Existing backports to reconcile after substream integration |
+| Role health/coupling (#24522, #24544) | `321e78e65`, `f3723698c` | Reconciled with per-stream RoleStatus in `62bd1115d` |
 
 Local features after the foundations: persisted edit plan, composite export source
 permissions and recording lease; synchronized grid/sequence renderer; recording-view
@@ -49,3 +49,16 @@ fixtures and migration-upgrade checks remain pending.
 Frontend installation uses `npm ci --registry=https://registry.npmjs.org` because
 the machine's default npm registry redirects through a private corporate service.
 Package versions and lockfile remain unchanged.
+
+Export prerequisites additionally included: review chapters `e90079ab2` and
+`5bc15d4aa`; structural filter allowlist `bc816926a`; audio defaults `2117b58ab`.
+The older master PlaybackFactor variant of #23310 was not applied: only the
+compatible Dev ChaptersEnum/config and chapter dispatch were adapted. The shared
+FFmpeg progress helper from #23099 is ported without the unrelated Debug Replay
+architecture. No non-root deployment changes were imported.
+
+Real media validation: main/sub resolution handoff decodes red main then blue sub
+with the expected four-second duration and staged-file cleanup. A legacy recording
+row survives actual migrations 036/037, is assigned `main`, and retains its original
+path and timestamps. The HTTP export suite passes apart from a missing test import
+that was corrected; final rerun is in progress.

@@ -1,5 +1,6 @@
 from typing import List, Optional
 
+from frigate.record.export import ExportStreamEnum
 from pydantic import BaseModel, Field, model_validator
 
 MAX_BATCH_EXPORT_ITEMS = 50
@@ -54,6 +55,16 @@ class BatchExportBody(BaseModel):
         default=None,
         title="New case description",
         description="Optional description for a newly created export case",
+    )
+    stream: ExportStreamEnum = Field(
+        default=ExportStreamEnum.auto,
+        title="Recorded stream to export",
+        description=(
+            "Which recorded stream every item in the batch is exported "
+            "from. 'auto' uses the merged timeline, preferring the main "
+            "stream and falling back to the sub stream where main has "
+            "aged out. 'main' or 'sub' pins the exports to that stream."
+        ),
     )
 
     @model_validator(mode="after")

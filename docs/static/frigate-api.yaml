@@ -6201,6 +6201,25 @@ paths:
                 $ref: "#/components/schemas/DebugReplayStopResponse"
 components:
   schemas:
+    ChaptersEnum:
+      type: string
+      enum:
+      - none
+      - recording_segments
+      - review_items
+      title: ChaptersEnum
+    ExportStreamEnum:
+      type: string
+      enum:
+      - auto
+      - main
+      - sub
+      title: ExportStreamEnum
+      description: "Which recorded stream an export should be built from.\n\n``auto``
+        keeps the merged timeline: main where it exists, sub filling\nthe gaps main
+        has already aged out of. Pinning to one stream trades\nthat coverage for a
+        uniform source, which is always a plain stream\ncopy since nothing hands off
+        mid-export."
     AppConfigSetBody:
       properties:
         requires_restart:
@@ -6728,35 +6747,47 @@ components:
       properties:
         items:
           items:
-            $ref: "#/components/schemas/BatchExportItem"
+            $ref: '#/components/schemas/BatchExportItem'
           type: array
-          minItems: 1
           maxItems: 50
+          minItems: 1
           title: Items
-          description: List of export items. Each item has its own camera and time range.
+          description: List of export items. Each item has its own camera and
+            time range.
         export_case_id:
           anyOf:
-            - type: string
-              maxLength: 30
-            - type: "null"
+          - type: string
+            maxLength: 30
+          - type: 'null'
           title: Export case ID
-          description: Existing export case ID to assign all exports to. Attaching to an existing case is temporarily admin-only until case-level ACLs exist.
+          description: Existing export case ID to assign all exports to.
+            Attaching to an existing case is temporarily admin-only until
+            case-level ACLs exist.
         new_case_name:
           anyOf:
-            - type: string
-              maxLength: 100
-            - type: "null"
+          - type: string
+            maxLength: 100
+          - type: 'null'
           title: New case name
-          description: Name of a new export case to create when export_case_id is omitted
+          description: Name of a new export case to create when export_case_id
+            is omitted
         new_case_description:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: New case description
           description: Optional description for a newly created export case
+        stream:
+          $ref: '#/components/schemas/ExportStreamEnum'
+          title: Recorded stream to export
+          description: Which recorded stream every item in the batch is exported
+            from. 'auto' uses the merged timeline, preferring the main stream
+            and falling back to the sub stream where main has aged out. 'main'
+            or 'sub' pins the exports to that stream.
+          default: auto
       type: object
       required:
-        - items
+      - items
       title: BatchExportBody
     BatchExportItem:
       properties:
@@ -7042,31 +7073,46 @@ components:
     ExportRecordingsBody:
       properties:
         source:
-          $ref: "#/components/schemas/PlaybackSourceEnum"
+          $ref: '#/components/schemas/PlaybackSourceEnum'
           title: Playback source
           default: recordings
         name:
           anyOf:
-            - type: string
-              maxLength: 256
-            - type: "null"
+          - type: string
+            maxLength: 256
+          - type: 'null'
           title: Friendly name
         image_path:
           type: string
           title: Image Path
         export_case_id:
           anyOf:
-            - type: string
-              maxLength: 30
-            - type: "null"
+          - type: string
+            maxLength: 30
+          - type: 'null'
           title: Export case ID
           description: ID of the export case to assign this export to
+        chapters:
+          anyOf:
+          - $ref: '#/components/schemas/ChaptersEnum'
+          - type: 'null'
+          title: Chapter mode
+          description: Optional chapter metadata to embed in the export. When
+            omitted, the camera's configured export chapter mode is used.
+        stream:
+          $ref: '#/components/schemas/ExportStreamEnum'
+          title: Recorded stream to export
+          description: Which recorded stream to export. 'auto' uses the merged
+            timeline, preferring the main stream and falling back to the sub
+            stream where main has aged out. 'main' or 'sub' pins the export to
+            that stream alone.
+          default: auto
       type: object
       title: ExportRecordingsBody
     ExportRecordingsCustomBody:
       properties:
         source:
-          $ref: "#/components/schemas/PlaybackSourceEnum"
+          $ref: '#/components/schemas/PlaybackSourceEnum'
           title: Playback source
           default: recordings
         name:
@@ -7078,33 +7124,30 @@ components:
           title: Image Path
         export_case_id:
           anyOf:
-            - type: string
-              maxLength: 30
-            - type: "null"
+          - type: string
+            maxLength: 30
+          - type: 'null'
           title: Export case ID
           description: ID of the export case to assign this export to
         ffmpeg_input_args:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: FFmpeg input arguments
-          description: >-
-            Custom FFmpeg input arguments. If not provided, defaults to
-            timelapse input args.
+          description: Custom FFmpeg input arguments. If not provided, defaults
+            to timelapse input args.
         ffmpeg_output_args:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: FFmpeg output arguments
-          description: >-
-            Custom FFmpeg output arguments. If not provided, defaults to
-            timelapse output args.
+          description: Custom FFmpeg output arguments. If not provided, defaults
+            to timelapse output args.
         cpu_fallback:
           type: boolean
           title: CPU Fallback
-          description: >-
-            If true, retry export without hardware acceleration if the initial
-            export fails.
+          description: If true, retry export without hardware acceleration if
+            the initial export fails.
           default: false
       type: object
       title: ExportRecordingsCustomBody

@@ -1,9 +1,12 @@
 from typing import Optional, Union
 
+from frigate.record.export import (
+    ChaptersEnum,
+    ExportStreamEnum,
+    PlaybackSourceEnum,
+)
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
-
-from frigate.record.export import PlaybackSourceEnum
 
 
 class ExportRecordingsBody(BaseModel):
@@ -18,9 +21,30 @@ class ExportRecordingsBody(BaseModel):
         max_length=30,
         description="ID of the export case to assign this export to",
     )
+    chapters: ChaptersEnum | None = Field(
+        default=None,
+        title="Chapter mode",
+        description=(
+            "Optional chapter metadata to embed in the export. When omitted, "
+            "the camera's configured export chapter mode is used."
+        ),
+    )
+    stream: ExportStreamEnum = Field(
+        default=ExportStreamEnum.auto,
+        title="Recorded stream to export",
+        description=(
+            "Which recorded stream to export. 'auto' uses the merged "
+            "timeline, preferring the main stream and falling back to the "
+            "sub stream where main has aged out. 'main' or 'sub' pins the "
+            "export to that stream alone."
+        ),
+    )
 
 
 class ExportRecordingsCustomBody(BaseModel):
+    stream: ExportStreamEnum = Field(
+        default=ExportStreamEnum.auto, title="Recorded stream to export"
+    )
     source: PlaybackSourceEnum = Field(
         default=PlaybackSourceEnum.recordings, title="Playback source"
     )
