@@ -753,15 +753,6 @@ function MSEPlayer({
         lastLoadedBytes = bytesLoaded;
         lastTimestamp = now;
 
-        const latency =
-          video.seekable.length > 0
-            ? Math.max(
-                0,
-                video.seekable.end(video.seekable.length - 1) -
-                  video.currentTime,
-              )
-            : 0;
-
         const videoQuality = video.getVideoPlaybackQuality();
         const { totalVideoFrames, droppedVideoFrames } = videoQuality;
         const droppedFrameRate = totalVideoFrames
@@ -771,7 +762,6 @@ function MSEPlayer({
         setStats?.({
           streamType: "MSE",
           bandwidth,
-          latency,
           totalFrames: totalVideoFrames,
           droppedFrames: droppedVideoFrames || undefined,
           decodedFrames: totalVideoFrames - droppedVideoFrames,
@@ -787,7 +777,6 @@ function MSEPlayer({
       setStats?.({
         streamType: "-",
         bandwidth: 0,
-        latency: undefined,
         totalFrames: 0,
         droppedFrames: undefined,
         decodedFrames: 0,
