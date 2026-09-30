@@ -17,6 +17,7 @@ from frigate.const import (
 )
 from frigate.ffmpeg_presets import parse_preset_hardware_acceleration_encode
 from frigate.util.config import find_config_file
+from frigate.util.live_streams import raw_transcode_streams
 
 sys.path.remove("/opt/frigate")
 
@@ -187,6 +188,17 @@ for name in list(go2rtc_config.get("streams", {})):
                 f"Set GO2RTC_ALLOW_ARBITRARY_EXEC=true to enable arbitrary exec sources."
             )
             del go2rtc_config["streams"][name]
+
+# add transcoded live streams; a user stream with the same name wins here and
+# fails Frigate's config validation
+transcoded_streams = raw_transcode_streams(config)
+
+if transcoded_streams:
+    if go2rtc_config.get("streams") is None:
+        go2rtc_config["streams"] = {}
+
+    for name, source in transcoded_streams.items():
+        go2rtc_config["streams"].setdefault(name, source)
 
 # add birdseye restream stream if enabled
 if config.get("birdseye", {}).get("restream", False):

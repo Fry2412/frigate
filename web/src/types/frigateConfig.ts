@@ -32,6 +32,17 @@ export interface FaceRecognitionConfig {
 export type SearchModel = "jinav1" | "jinav2";
 export type SearchModelSize = "small" | "large";
 
+export type LiveTranscodeQuality = {
+  height: number;
+  bitrate: number;
+};
+
+export type LiveTranscodeConfig = {
+  enabled: boolean;
+  source?: string | null;
+  qualities: LiveTranscodeQuality[];
+};
+
 export interface CameraConfig {
   friendly_name: string;
   audio: {
@@ -104,6 +115,7 @@ export interface CameraConfig {
     height: number;
     quality: number;
     streams: { [key: string]: string };
+    transcode: LiveTranscodeConfig;
   };
   lpr: {
     enabled: boolean;

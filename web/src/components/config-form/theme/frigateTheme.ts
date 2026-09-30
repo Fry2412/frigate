@@ -48,6 +48,8 @@ import { LayoutGridField } from "./fields/LayoutGridField";
 import { DetectorHardwareField } from "./fields/DetectorHardwareField";
 import { ReplaceRulesField } from "./fields/ReplaceRulesField";
 import { CameraInputsField } from "./fields/CameraInputsField";
+import { LiveStreamsField } from "./fields/LiveStreamsField";
+import { LiveTranscodeField } from "./fields/LiveTranscodeField";
 
 export interface FrigateTheme {
   widgets: RegistryWidgetsType;
@@ -103,5 +105,7 @@ export const frigateTheme: FrigateTheme = {
     DetectorHardwareField: DetectorHardwareField,
     ReplaceRulesField: ReplaceRulesField,
     CameraInputsField: CameraInputsField,
+    LiveStreamsField: LiveStreamsField,
+    LiveTranscodeField: LiveTranscodeField,
   },
 };

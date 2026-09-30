@@ -1,6 +1,7 @@
 import { baseUrl } from "@/api/baseUrl";
 import { useUserPersistence } from "@/hooks/use-user-persistence";
 import {
+  LiveHealthSample,
   LivePlayerError,
   PlayerStatsType,
   VideoResolutionType,
@@ -28,6 +29,7 @@ type MSEPlayerProps = {
   onPlaying?: () => void;
   setFullResolution?: React.Dispatch<SetStateAction<VideoResolutionType>>;
   onError?: (error: LivePlayerError) => void;
+  onHealthSample?: (sample: LiveHealthSample) => void;
 };
 
 function MSEPlayer({
@@ -43,6 +45,7 @@ function MSEPlayer({
   onPlaying,
   setFullResolution,
   onError,
+  onHealthSample,
 }: MSEPlayerProps) {
   const RECONNECT_TIMEOUT: number = 10000;
   const BUFFERING_COOLDOWN_TIMEOUT: number = 5000;
@@ -71,6 +74,7 @@ function MSEPlayer({
   const [bufferTimeout, setBufferTimeout] = useState<NodeJS.Timeout>();
   const [errorCount, setErrorCount] = useState<number>(0);
   const totalBytesLoaded = useRef(0);
+  const appendingRef = useRef(false);
 
   const [fallbackTimeout] = useUserPersistence<number>(
     "liveFallbackTimeout",
@@ -94,6 +98,13 @@ function MSEPlayer({
     return `${baseUrl.replace(/^http/, "ws")}live/mse/api/ws?src=${camera}`;
   }, [camera]);
 
+  // socket handlers are bound once per connection, so they reach the
+  // current onError through a ref
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
   const handleError = useCallback(
     (error: LivePlayerError, description: string = "Unknown error") => {
       // eslint-disable-next-line no-console
@@ -109,11 +120,11 @@ function MSEPlayer({
         // eslint-disable-next-line no-console
         console.error(`${camera} - Supported codecs: ${CODECS.join(", ")}`);
       }
-      onError?.(error);
+      onErrorRef.current?.(error);
     },
     // we know that these deps are correct
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [camera, onError],
+    [camera],
   );
 
   const handleLoadedMetadata = useCallback(() => {
@@ -464,7 +475,12 @@ function MSEPlayer({
             const data = buf.slice(0, bufLen);
             bufLen = 0;
             sb.appendBuffer(data);
-          } else if (sb.buffered && sb.buffered.length) {
+            return;
+          }
+
+          appendingRef.current = false;
+
+          if (sb.buffered && sb.buffered.length) {
             const end = sb.buffered.end(sb.buffered.length - 1) - 15;
             const start = sb.buffered.start(0);
             if (end > start) {
@@ -482,6 +498,7 @@ function MSEPlayer({
 
       ondataRef.current = (data) => {
         totalBytesLoaded.current += data.byteLength;
+        appendingRef.current = true;
 
         if (sb?.updating || bufLen > 0) {
           const b = new Uint8Array(data);
@@ -496,6 +513,19 @@ function MSEPlayer({
           }
         }
       };
+    };
+
+    // go2rtc answers a codec it cannot provide with an error message
+    // instead of a negotiation reply
+    onmessageRef.current["error"] = (msg) => {
+      if (msg.type !== "error" || !msg.value?.includes("codecs not matched")) {
+        return;
+      }
+
+      if (wsRef.current) {
+        onDisconnect();
+      }
+      handleError("mse-codec", msg.value);
     };
   };
 
@@ -734,19 +764,38 @@ function MSEPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackEnabled]);
 
-  // stats
+  // stats and health samples
+
+  const onHealthSampleRef = useRef(onHealthSample);
+  useEffect(() => {
+    onHealthSampleRef.current = onHealthSample;
+  }, [onHealthSample]);
+  const sampleHealth = onHealthSample !== undefined;
 
   useEffect(() => {
     const video = videoRef.current;
     let lastLoadedBytes = totalBytesLoaded.current;
     let lastTimestamp = Date.now();
+    let healthBytes = lastLoadedBytes;
+    let healthTimestamp = lastTimestamp;
+    // a restart mid-stream must not count the existing buffer as new media
+    let lastBufferedEnd =
+      video && video.buffered.length > 0
+        ? video.buffered.end(video.buffered.length - 1)
+        : 0;
+    let deferred = false;
 
-    if (!getStats) return;
+    if (!getStats && !sampleHealth) return;
 
-    const updateStats = () => {
-      if (video) {
-        const now = Date.now();
-        const bytesLoaded = totalBytesLoaded.current;
+    const update = () => {
+      if (!video) {
+        return;
+      }
+
+      const now = Date.now();
+      const bytesLoaded = totalBytesLoaded.current;
+
+      if (getStats) {
         const timeElapsed = (now - lastTimestamp) / 1000; // seconds
         const bandwidth = (bytesLoaded - lastLoadedBytes) / timeElapsed / 1000; // kBps
 
@@ -768,22 +817,64 @@ function MSEPlayer({
           droppedFrameRate,
         });
       }
+
+      if (!sampleHealth) {
+        return;
+      }
+
+      // a sample taken mid-append would count the bytes without their
+      // media, so it waits one tick for the append to land
+      if (appendingRef.current && !deferred) {
+        deferred = true;
+        return;
+      }
+      deferred = false;
+
+      // the buffered end tracks delivered media, so playback-rate
+      // catch-up does not skew it
+      const bufferedEnd =
+        video.buffered.length > 0
+          ? video.buffered.end(video.buffered.length - 1)
+          : 0;
+      const mediaSeconds = bufferedEnd - lastBufferedEnd;
+      const bytes = bytesLoaded - healthBytes;
+      const wallSeconds = (now - healthTimestamp) / 1000;
+
+      lastBufferedEnd = bufferedEnd;
+      healthBytes = bytesLoaded;
+      healthTimestamp = now;
+
+      // a reconnect starts a new MediaSource timeline
+      if (mediaSeconds < 0) {
+        return;
+      }
+
+      if (
+        document.visibilityState !== "visible" ||
+        (video.paused && bufferedEnd > 0)
+      ) {
+        return;
+      }
+
+      onHealthSampleRef.current?.({ bytes, mediaSeconds, wallSeconds });
     };
 
-    const interval = setInterval(updateStats, 1000); // Update every second
+    const interval = setInterval(update, 1000);
 
     return () => {
       clearInterval(interval);
-      setStats?.({
-        streamType: "-",
-        bandwidth: 0,
-        totalFrames: 0,
-        droppedFrames: undefined,
-        decodedFrames: 0,
-        droppedFrameRate: 0,
-      });
+      if (getStats) {
+        setStats?.({
+          streamType: "-",
+          bandwidth: 0,
+          totalFrames: 0,
+          droppedFrames: undefined,
+          decodedFrames: 0,
+          droppedFrameRate: 0,
+        });
+      }
     };
-  }, [setStats, getStats]);
+  }, [setStats, getStats, sampleHealth]);
 
   return (
     <video

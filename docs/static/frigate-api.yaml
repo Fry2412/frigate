@@ -366,7 +366,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+        - frigateAdminAuth: []
+      x-required-role: admin
+  /go2rtc/streams/{stream_name}/bitrate:
+    get:
+      tags:
+        - Camera
+      summary: Go2Rtc Stream Bitrate
+      description: |-
+        **Access:** Admin role required.
+
+        Measure a go2rtc stream's bitrate over a few seconds.
+      operationId:
+        go2rtc_stream_bitrate_go2rtc_streams__stream_name__bitrate_get
+      parameters:
+        - name: stream_name
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Stream Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+        - frigateAdminAuth: []
+      x-required-role: admin
   /ffprobe:
     get:
       tags:
@@ -6240,6 +6276,11 @@ components:
           type: boolean
           title: Skip Save
           default: false
+        replace_paths:
+          items:
+            type: string
+          type: array
+          title: Replace Paths
       type: object
       title: AppConfigSetBody
     AppPostLoginBody:

@@ -64,6 +64,8 @@ import {
   cameraUpdateTopicMap,
   globalCameraDefaultSections,
   buildOverrides,
+  applyOrderedMaps,
+  changedOrderedMapPaths,
   buildConfigDataForPath,
   getBaseCameraSectionValue,
   sanitizeSectionData as sharedSanitizeSectionData,
@@ -111,6 +113,8 @@ export interface SectionConfig {
   messages?: ConditionalMessage[];
   /** Conditional messages displayed inline with specific fields */
   fieldMessages?: FieldConditionalMessage[];
+  /** Maps whose key order is saved (e.g. live stream ladder order) */
+  orderedMaps?: string[];
 }
 
 export interface BaseSectionProps {
@@ -427,6 +431,18 @@ export function ConfigSection({
     [rawFormData, sanitizeSectionData],
   );
 
+  const orderedMaps = sectionConfig.orderedMaps;
+  const buildSectionOverrides = useCallback(
+    (current: unknown, base: unknown, defaults: unknown) =>
+      applyOrderedMaps(
+        buildOverrides(current, base, defaults),
+        current,
+        base,
+        orderedMaps ?? [],
+      ),
+    [orderedMaps],
+  );
+
   // Clear pendingData whenever the section/camera key changes (e.g., switching
   // cameras) or when there is no pending data yet (initialization).
   // This prevents RJSF's initial onChange call from being treated as a user edit.
@@ -467,10 +483,12 @@ export function ConfigSection({
   // Track if there are unsaved changes
   const hasChanges = useMemo(() => {
     const pendingChanged = pendingData
-      ? !isEqual(formData, pendingData)
+      ? !isEqual(formData, pendingData) ||
+        changedOrderedMapPaths(pendingData, formData, orderedMaps ?? [])
+          .length > 0
       : false;
     return pendingChanged || extraHasChanges;
-  }, [formData, pendingData, extraHasChanges]);
+  }, [formData, pendingData, extraHasChanges, orderedMaps]);
 
   useEffect(() => {
     onStatusChange?.({
@@ -503,7 +521,7 @@ export function ConfigSection({
       }
       const sanitizedData = sanitizeSectionData(data as ConfigSectionData);
       const nextBaselineFormData = baselineSnapshot;
-      const overrides = buildOverrides(
+      const overrides = buildSectionOverrides(
         sanitizedData,
         compareBaseData,
         effectiveSchemaDefaults,
@@ -518,7 +536,7 @@ export function ConfigSection({
           return;
         }
       }
-      const dirty = buildOverrides(
+      const dirty = buildSectionOverrides(
         sanitizedData,
         nextBaselineFormData,
         undefined,
@@ -541,11 +559,23 @@ export function ConfigSection({
       setPendingOverrides,
       setDirtyOverrides,
       baselineSnapshot,
+      buildSectionOverrides,
     ],
   );
 
   const currentFormData = pendingData || formData;
   const effectiveBaselineFormData = baselineSnapshot;
+
+  // RJSF memoizes fields with an order-blind deep compare, so a pure reorder
+  // of an ordered map would not re-render; the key order breaks the tie
+  const orderedMapsKeyOrder = useMemo(
+    () =>
+      (orderedMaps ?? []).map((path) => {
+        const value = get(currentFormData, path);
+        return value && typeof value === "object" ? Object.keys(value) : [];
+      }),
+    [currentFormData, orderedMaps],
+  );
 
   // Build context for conditional messages
   const messageContext = useMemo<MessageConditionContext | undefined>(() => {
@@ -613,7 +643,7 @@ export function ConfigSection({
     const sanitizedData = sanitizeSectionData(
       currentFormData as ConfigSectionData,
     );
-    return buildOverrides(
+    return buildSectionOverrides(
       sanitizedData,
       compareBaseData,
       effectiveSchemaDefaults,
@@ -623,6 +653,7 @@ export function ConfigSection({
     sanitizeSectionData,
     compareBaseData,
     effectiveSchemaDefaults,
+    buildSectionOverrides,
   ]);
 
   const effectiveOverrides = pendingData
@@ -661,7 +692,12 @@ export function ConfigSection({
           ? `cameras.${cameraName}.${effectiveSectionPath}`
           : effectiveSectionPath;
       const rawData = sanitizeSectionData(rawFormData);
-      const overrides = buildOverrides(
+      const replacePaths = changedOrderedMapPaths(
+        pendingData,
+        rawData,
+        orderedMaps ?? [],
+      ).map((path) => `${basePath}.${path}`);
+      const overrides = buildSectionOverrides(
         pendingData,
         rawData,
         effectiveSchemaDefaults,
@@ -688,10 +724,11 @@ export function ConfigSection({
           : requiresRestartForOverrides(sanitizedOverrides);
 
       const configData = buildConfigDataForPath(basePath, sanitizedOverrides);
-      await axios.put("config/set", {
+      const response = await axios.put("config/set", {
         requires_restart: needsRestart ? 1 : 0,
         update_topic: updateTopic,
         config_data: configData,
+        ...(replacePaths.length > 0 ? { replace_paths: replacePaths } : {}),
         ...(skipSave ? { skip_save: true } : {}),
       });
 
@@ -728,6 +765,8 @@ export function ConfigSection({
             ),
           },
         );
+      } else if (response.data?.go2rtc_synced === false) {
+        toast.warning(t("toast.go2rtcSyncFailed", { ns: "views/settings" }));
       } else {
         toast.success(
           t("toast.success", {
@@ -798,6 +837,8 @@ export function ConfigSection({
     requiresRestartForOverrides,
     skipSave,
     onSavingChange,
+    orderedMaps,
+    buildSectionOverrides,
   ]);
 
   // Handle reset to global/defaults - removes camera-level override or resets global to defaults
@@ -965,6 +1006,8 @@ export function ConfigSection({
         formContext={{
           level: effectiveLevel,
           cameraName,
+          sectionPath,
+          orderedMapsKeyOrder,
           globalValue,
           cameraValue,
           hasChanges,

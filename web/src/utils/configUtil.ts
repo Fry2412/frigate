@@ -220,6 +220,75 @@ export function buildOverrides(
 }
 
 // ---------------------------------------------------------------------------
+// Ordered maps: config maps whose key order is meaningful
+// ---------------------------------------------------------------------------
+
+// lodash isEqual ignores key order, so ordered maps compare entry lists.
+export function changedOrderedMapPaths(
+  current: unknown,
+  base: unknown,
+  paths: string[],
+): string[] {
+  return paths.filter((path) => {
+    const value = get(current, path);
+
+    if (!isJsonObject(value)) {
+      return false;
+    }
+
+    const baseValue = get(base, path);
+    return !isEqual(
+      Object.entries(value),
+      isJsonObject(baseValue) ? Object.entries(baseValue) : undefined,
+    );
+  });
+}
+
+// Send a changed ordered map whole; per-key overrides cannot carry order.
+export function applyOrderedMaps(
+  overrides: unknown,
+  current: unknown,
+  base: unknown,
+  paths: string[],
+): unknown {
+  const changed = changedOrderedMapPaths(current, base, paths);
+
+  if (changed.length === 0) {
+    return overrides;
+  }
+
+  const result = isJsonObject(overrides) ? cloneDeep(overrides) : {};
+  changed.forEach((path) => set(result, path, cloneDeep(get(current, path))));
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// flattenOverrides — turn an overrides object into a list of leaf paths
+// ---------------------------------------------------------------------------
+
+// Walks a nested overrides value and produces a flat list of `{ path, value }`
+// entries, one per leaf.  Used by save/preview UIs to enumerate the individual
+// fields that will be changed.
+export function flattenOverrides(
+  value: JsonValue | undefined,
+  path: string[] = [],
+): Array<{ path: string; value: JsonValue }> {
+  if (value === undefined) return [];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return [{ path: path.join("."), value }];
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    return [{ path: path.join("."), value: {} }];
+  }
+
+  return entries.flatMap(([key, entryValue]) =>
+    flattenOverrides(entryValue, [...path, key]),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // sanitizeSectionData — normalize config values and strip hidden fields
 // ---------------------------------------------------------------------------
 
@@ -397,6 +466,7 @@ export interface SectionSavePayload {
   updateTopic: string | undefined;
   needsRestart: boolean;
   pendingDataKey: string;
+  replacePaths?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +657,13 @@ export function prepareSectionSavePayload(opts: {
   );
 
   // Build overrides
-  const overrides = buildOverrides(pendingData, rawData, effectiveDefaults);
+  const orderedMaps = sectionConfig.orderedMaps ?? [];
+  const overrides = applyOrderedMaps(
+    buildOverrides(pendingData, rawData, effectiveDefaults),
+    pendingData,
+    rawData,
+    orderedMaps,
+  );
   const sanitizedOverrides = sanitizeOverridesForSection(
     schemaSection,
     level,
@@ -637,6 +713,9 @@ export function prepareSectionSavePayload(opts: {
     updateTopic,
     needsRestart,
     pendingDataKey,
+    replacePaths: changedOrderedMapPaths(pendingData, rawData, orderedMaps).map(
+      (path) => `${basePath}.${path}`,
+    ),
   };
 }
 

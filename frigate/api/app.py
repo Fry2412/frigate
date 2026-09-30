@@ -57,9 +57,17 @@ from frigate.util.builtin import (
     flatten_config_data,
     load_labels,
     process_config_query_string,
+    split_config_key_path,
     update_yaml_file_bulk,
 )
-from frigate.util.config import apply_section_update, find_config_file
+from frigate.util.config import (
+    apply_section_update,
+    find_config_file,
+)
+from frigate.util.live_streams import (
+    generated_transcode_streams,
+    sync_transcode_streams,
+)
 from frigate.util.schema import get_config_schema
 from frigate.util.services import (
     get_nvidia_driver_info,
@@ -595,6 +603,17 @@ def _config_set_in_memory(request: Request, body: AppConfigSetBody) -> JSONRespo
         )
 
 
+def _config_path_exists(data: Any, key_path: str) -> bool:
+    """Return whether a dotted config path is present in parsed yaml."""
+    for key in split_config_key_path(key_path):
+        if not isinstance(data, dict) or key not in data:
+            return False
+
+        data = data[key]
+
+    return True
+
+
 @router.put("/config/set", dependencies=[Depends(require_role(["admin"]))])
 def config_set(request: Request, body: AppConfigSetBody):
     config_file = find_config_file()
@@ -638,6 +657,19 @@ def config_set(request: Request, body: AppConfigSetBody):
                         ),
                         status_code=400,
                     )
+
+                # delete replaced paths first so their maps are rewritten in
+                # the order sent; update_yaml would otherwise keep old order
+                if body.replace_paths:
+                    old_yaml = ruamel.yaml.YAML(typ="safe").load(old_raw_config) or {}
+                    updates = {
+                        **{
+                            path: ""
+                            for path in body.replace_paths
+                            if _config_path_exists(old_yaml, path)
+                        },
+                        **updates,
+                    }
 
                 # apply all updates in a single operation
                 update_yaml_file_bulk(config_file, updates)
@@ -697,6 +729,7 @@ def config_set(request: Request, body: AppConfigSetBody):
                     status_code=500,
                 )
 
+            go2rtc_synced = True
             if body.requires_restart == 0 or body.update_topic:
                 old_config: FrigateConfig = request.app.frigate_config
                 request.app.frigate_config = config
@@ -707,6 +740,9 @@ def config_set(request: Request, body: AppConfigSetBody):
 
                 if request.app.stats_emitter is not None:
                     request.app.stats_emitter.config = config
+                go2rtc_synced = sync_transcode_streams(
+                    generated_transcode_streams(old_config), generated_transcode_streams(config)
+                )
 
                 if body.update_topic:
                     if body.update_topic.startswith("config/cameras/"):
@@ -750,7 +786,12 @@ def config_set(request: Request, body: AppConfigSetBody):
                 content=(
                     {
                         "success": True,
-                        "message": "Config successfully updated, restart to apply",
+                        "message": (
+                            "Config successfully updated"
+                            if body.requires_restart == 0
+                            else "Config successfully updated, restart to apply"
+                        ),
+                        "go2rtc_synced": go2rtc_synced,
                     }
                 ),
                 status_code=200,

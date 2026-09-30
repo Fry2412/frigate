@@ -12,7 +12,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type { ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
+import { Input } from "@/components/ui/input";
 
 interface AddPropertyButtonProps {
   /** Callback fired when the add button is clicked */
@@ -134,5 +135,71 @@ export function AdvancedCollapsible({
         {children}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+interface MapKeyInputProps {
+  /** DOM id used for label association */
+  id: string;
+  /** The committed key as it exists in the form data */
+  value: string;
+  /** Placeholder shown when the input is empty */
+  placeholder?: string;
+  /** Whether the input is disabled */
+  disabled?: boolean;
+  /** Additional class names */
+  className?: string;
+  /** Called with the edited key when it is safe to commit */
+  onCommit: (next: string) => void;
+  /** Whether another entry already uses this key, which defers the commit */
+  isKeyTaken?: (next: string) => boolean;
+}
+
+/**
+ * Text input for the key of a map entry (e.g. a live stream name).
+ *
+ * The edit is kept in local state so that the draft can be re-synced whenever
+ * the committed key changes underneath the input, which is what happens when
+ * the selected camera changes while the field stays mounted.
+ *
+ * Each keystroke is committed so the section is marked as modified right away,
+ * except while the typed key belongs to another entry: renaming onto an
+ * existing key merges the two entries, so a name typed through a neighbor's
+ * name would silently drop it. Those keystrokes stay local until the key is
+ * free again or the input is blurred.
+ */
+export function MapKeyInput({
+  id,
+  value,
+  placeholder,
+  disabled,
+  className,
+  onCommit,
+  isKeyTaken,
+}: MapKeyInputProps) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const handleChange = (next: string) => {
+    setDraft(next);
+
+    if (!isKeyTaken?.(next)) {
+      onCommit(next);
+    }
+  };
+
+  return (
+    <Input
+      id={id}
+      value={draft}
+      placeholder={placeholder}
+      disabled={disabled}
+      className={className}
+      onChange={(e) => handleChange(e.target.value)}
+      onBlur={() => onCommit(draft)}
+    />
   );
 }

@@ -35,6 +35,7 @@ from onvif import ONVIFCamera, ONVIFError
 from ruamel.yaml import YAML
 from zeep.exceptions import Fault, TransportError
 from zeep.transports import AsyncTransport
+from frigate.util.live_streams import generated_transcode_streams, measure_stream_bitrate, sync_transcode_streams
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,34 @@ def go2rtc_delete_stream(stream_name: str):
             ),
             status_code=500,
         )
+
+
+@router.get(
+    "/go2rtc/streams/{stream_name}/bitrate",
+    dependencies=[Depends(require_role(["admin"]))],
+)
+async def go2rtc_stream_bitrate(request: Request, stream_name: str):
+    """Measure a go2rtc stream's bitrate over a few seconds."""
+    config: FrigateConfig = request.app.frigate_config
+    known = set(config.go2rtc.model_dump().get("streams") or {}) | set(
+        generated_transcode_streams(config)
+    )
+
+    if stream_name not in known:
+        return JSONResponse(
+            content={"success": False, "message": "Unknown stream"},
+            status_code=404,
+        )
+
+    kbps = await asyncio.to_thread(measure_stream_bitrate, stream_name)
+
+    if kbps is None:
+        return JSONResponse(
+            content={"success": False, "message": "Stream sent no data"},
+            status_code=502,
+        )
+
+    return JSONResponse(content={"success": True, "kbps": round(kbps)})
 
 
 @router.get("/ffprobe", dependencies=[Depends(require_role(["admin"]))])
@@ -1205,6 +1234,12 @@ async def delete_camera(
         )
     except Exception:
         logger.debug("Failed to remove go2rtc stream for %s", camera_name)
+
+    await asyncio.to_thread(
+        sync_transcode_streams,
+        generated_transcode_streams(frigate_config),
+        generated_transcode_streams(request.app.frigate_config),
+    )
 
     return JSONResponse(
         content={
