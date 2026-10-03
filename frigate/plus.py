@@ -9,7 +9,9 @@ from typing import Any, List
 import cv2
 import requests
 from numpy import ndarray
+from requests.adapters import HTTPAdapter
 from requests.models import Response
+from urllib3.util.retry import Retry
 
 from frigate.const import PLUS_API_HOST, PLUS_ENV_VAR
 
@@ -61,6 +63,11 @@ class PlusApi:
 
         self._is_active: bool = self.key is not None
         self._token_data: dict = {}
+        # A network that comes up late should not abort a Frigate+ startup.
+        self._session = requests.Session()
+        self._session.mount(
+            self.host, HTTPAdapter(max_retries=Retry(connect=5, backoff_factor=1))
+        )
 
     def _refresh_token_if_needed(self) -> None:
         if (
@@ -72,7 +79,7 @@ class PlusApi:
                     "Plus API key not set. See https://docs.frigate.video/integrations/plus#set-your-api-key"
                 )
             parts = self.key.split(":")
-            r = requests.get(f"{self.host}/v1/auth/token", auth=(parts[0], parts[1]))
+            r = self._session.get(f"{self.host}/v1/auth/token", auth=(parts[0], parts[1]))
             if not r.ok:
                 raise Exception(f"Unable to refresh API token: {r.text}")
             self._token_data = r.json()
@@ -82,19 +89,19 @@ class PlusApi:
         return {"authorization": f"Bearer {self._token_data.get('accessToken')}"}
 
     def _get(self, path: str) -> Response:
-        return requests.get(
+        return self._session.get(
             f"{self.host}/v1/{path}", headers=self._get_authorization_header()
         )
 
     def _post(self, path: str, data: dict) -> Response:
-        return requests.post(
+        return self._session.post(
             f"{self.host}/v1/{path}",
             headers=self._get_authorization_header(),
             json=data,
         )
 
     def _put(self, path: str, data: dict) -> Response:
-        return requests.put(
+        return self._session.put(
             f"{self.host}/v1/{path}",
             headers=self._get_authorization_header(),
             json=data,
