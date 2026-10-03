@@ -322,6 +322,15 @@ async def set_npu_usages(config: FrigateConfig, all_stats: dict[str, Any]) -> No
         all_stats["npu_usages"] = stats
 
 
+def get_go2rtc_pid(cpu_usages: dict[str, dict[str, Any]]) -> int | None:
+    """Find the pid of the running go2rtc process in the cpu usages."""
+    for pid, usage in cpu_usages.items():
+        if usage.get("cmdline", "").split(" ")[0].endswith("/go2rtc"):
+            return int(pid)
+
+    return None
+
+
 def stats_snapshot(
     config: FrigateConfig, stats_tracking: StatsTrackingTypes, hwaccel_errors: list[str]
 ) -> dict[str, Any]:
@@ -492,6 +501,13 @@ def stats_snapshot(
 
     stats["service"]["storage"]["/dev/shm"] = calculate_shm_requirements(config)
 
+    cpu_usages = stats.get("cpu_usages", {})
+
+    # go2rtc is supervised by s6 and can restart independently of Frigate.
+    go2rtc_pid = get_go2rtc_pid(cpu_usages)
+    if go2rtc_pid is not None:
+        stats_tracking["processes"]["go2rtc"] = go2rtc_pid
+
     stats["processes"] = {}
     for name, pid in stats_tracking["processes"].items():
         stats["processes"][name] = {
@@ -500,7 +516,6 @@ def stats_snapshot(
 
     # Embed cpu/mem stats into detectors, cameras, and processes
     # so history consumers don't need the full cpu_usages dict
-    cpu_usages = stats.get("cpu_usages", {})
 
     for det_stats in stats["detectors"].values():
         pid_str = str(det_stats.get("pid", ""))
