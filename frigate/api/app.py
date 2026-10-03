@@ -146,6 +146,11 @@ def config(request: Request):
         for name, detector in config_obj.detectors.items()
     }
 
+    is_admin = request.headers.get("remote-role") == "admin"
+    if not is_admin:
+        config.pop("environment_vars", None)
+        config.get("notifications", {}).pop("email", None)
+
     # remove the mqtt password
     config["mqtt"].pop("password", None)
 
@@ -205,7 +210,13 @@ def config(request: Request):
                 camera_name
             )
             if base_sections:
-                camera_dict["base_config"] = base_sections
+                camera_dict["base_config"] = copy.deepcopy(base_sections)
+
+        if not is_admin:
+            camera_dict.get("notifications", {}).pop("email", None)
+            camera_dict.get("base_config", {}).get("notifications", {}).pop("email", None)
+            for profile in camera_dict.get("profiles", {}).values():
+                profile.get("notifications", {}).pop("email", None)
 
     # remove go2rtc stream passwords
     go2rtc: dict[str, Any] = config_obj.go2rtc.model_dump(
