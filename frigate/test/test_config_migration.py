@@ -34,7 +34,9 @@ class TestMigrateConfigFile(unittest.TestCase):
             self.assertEqual(migrated["genai"]["default"]["model"], "llava")
             self.assertEqual(migrated["auth"]["mode"], "hybrid")
             self.assertTrue(migrated["auth"]["oidc"]["enabled"])
-            self.assertEqual((Path(directory) / "backup_config.yaml").read_text(), original)
+            self.assertEqual(
+                (Path(directory) / "backup_config.yaml").read_text(), original
+            )
 
             with patch("frigate.util.config.CONFIG_DIR", directory):
                 migrate_frigate_config(str(config_path))

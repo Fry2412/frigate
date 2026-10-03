@@ -29,22 +29,39 @@ class TestNotificationSecrets(unittest.TestCase):
             active_profile="night",
             cameras={
                 "front": {
-                    "ffmpeg": {"inputs": [{"path": "rtsp://localhost/live", "roles": ["detect"]}]},
+                    "detect": {"width": 640, "height": 360, "fps": 5},
+                    "ffmpeg": {
+                        "inputs": [
+                            {"path": "rtsp://localhost/live", "roles": ["detect"]}
+                        ]
+                    },
                 }
             },
         )
         base_config = {"notifications": {"email": "base@example.com"}}
         profile_manager = Mock()
         profile_manager.get_base_configs_for_api.return_value = base_config
-        app = SimpleNamespace(frigate_config=frigate_config, profile_manager=profile_manager)
+        app = SimpleNamespace(
+            frigate_config=frigate_config, profile_manager=profile_manager
+        )
 
         def response_for(role):
-            request = Request({"type": "http", "headers": [(b"remote-role", role.encode())], "app": app})
+            request = Request(
+                {
+                    "type": "http",
+                    "headers": [(b"remote-role", role.encode())],
+                    "app": app,
+                }
+            )
             return json.loads(config(request).body)
 
         viewer = response_for("viewer")
         self.assertNotIn("email", viewer["notifications"])
         self.assertNotIn("email", viewer["cameras"]["front"]["notifications"])
-        self.assertNotIn("email", viewer["cameras"]["front"]["base_config"]["notifications"])
+        self.assertNotIn(
+            "email", viewer["cameras"]["front"]["base_config"]["notifications"]
+        )
         self.assertEqual(base_config["notifications"]["email"], "base@example.com")
-        self.assertEqual(response_for("admin")["notifications"]["email"], "alerts@example.com")
+        self.assertEqual(
+            response_for("admin")["notifications"]["email"], "alerts@example.com"
+        )

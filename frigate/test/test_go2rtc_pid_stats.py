@@ -46,7 +46,10 @@ class TestGo2rtcPidInSnapshot(unittest.TestCase):
 
         with (
             patch("frigate.stats.util.get_detector_stats", return_value={}),
-            patch("frigate.stats.util.get_processing_stats", side_effect=lambda config, stats, errors: update_stats(stats)),
+            patch(
+                "frigate.stats.util.get_processing_stats",
+                side_effect=lambda config, stats, errors: update_stats(stats),
+            ),
             patch("frigate.stats.util.calculate_shm_requirements", return_value={}),
         ):
             return stats_snapshot(config, tracking, [])

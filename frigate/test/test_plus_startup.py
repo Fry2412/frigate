@@ -24,7 +24,9 @@ class TestPlusStartup(unittest.TestCase):
             api.get_model_download_url.side_effect = requests.exceptions.ConnectionError
             model = ModelConfig(path="plus://unreachable")
             with patch("frigate.detectors.detector_config.MODEL_CACHE_DIR", directory):
-                with self.assertRaisesRegex(ValueError, r"Unable to connect to Frigate\+"):
+                with self.assertRaisesRegex(
+                    ValueError, r"Unable to connect to Frigate\+"
+                ):
                     model.check_and_load_plus_model(api)
             self.assertFalse((Path(directory) / "unreachable").exists())
 

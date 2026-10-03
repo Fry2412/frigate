@@ -32,7 +32,9 @@ class TestRemoteAddr(unittest.TestCase):
 
     def test_invalid_network_is_skipped(self):
         self.assertEqual(
-            get_remote_addr(self.request("198.51.100.20, 10.0.0.1", ["bad", "10.0.0.0/8"])),
+            get_remote_addr(
+                self.request("198.51.100.20, 10.0.0.1", ["bad", "10.0.0.0/8"])
+            ),
             "198.51.100.20",
         )
 
