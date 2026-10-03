@@ -504,7 +504,12 @@ rateLimiter = RateLimiter()
 
 
 def get_remote_addr(request: Request):
-    route = list(reversed(request.headers.get("x-forwarded-for").split(",")))
+    direct_addr = request.client.host if request.client else None
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if not forwarded_for:
+        return direct_addr or "127.0.0.1"
+
+    route = list(reversed(forwarded_for.split(",")))
     logger.debug(f"IP Route: {[r for r in route]}")
     trusted_proxies = []
     for proxy in request.app.frigate_config.auth.trusted_proxies:
@@ -512,11 +517,16 @@ def get_remote_addr(request: Request):
             network = ipaddress.ip_network(proxy)
         except ValueError:
             logger.warning(f"Unable to parse trusted network: {proxy}")
+            continue
         trusted_proxies.append(network)
 
     # return the first remote address that is not trusted
     for addr in route:
-        ip = ipaddress.ip_address(addr.strip())
+        try:
+            ip = ipaddress.ip_address(addr.strip())
+        except ValueError:
+            logger.debug("Invalid address in X-Forwarded-For header")
+            return direct_addr or "127.0.0.1"
         logger.debug(f"Checking {ip} (v{ip.version})")
         trusted = False
         for trusted_proxy in trusted_proxies:
