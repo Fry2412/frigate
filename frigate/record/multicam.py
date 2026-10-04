@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from frigate.const import EXPORT_DIR
 from frigate.models import Export
 from frigate.util.recording_coverage import (
@@ -18,7 +20,6 @@ from frigate.util.recording_coverage import (
     null_audio_glitches,
     resolve_coverage,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Shot(BaseModel):
@@ -220,7 +221,20 @@ class MultiCamRenderer:
                 stderr=error,
             )
             started = time.monotonic()
+            last_space_check = started
             while self.process.poll() is None:
+                if time.monotonic() - last_space_check > 2:
+                    last_space_check = time.monotonic()
+                    if shutil.disk_usage(EXPORT_DIR).free < 128 * 1024**2:
+                        self.process.terminate()
+                        try:
+                            self.process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            self.process.kill()
+                            self.process.wait()
+                        raise RuntimeError(
+                            "Insufficient free space for MultiCam export"
+                        )
                 if self.cancelled.wait(0.1) or time.monotonic() - started > max(
                     120, self.plan.duration * 10
                 ):
@@ -278,6 +292,8 @@ class MultiCamRenderer:
             "48000",
             "-ac",
             "1",
+            "-threads",
+            "2",
         ]
 
     def _concat(self, paths, dest, durations, metadata=False):

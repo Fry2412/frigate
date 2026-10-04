@@ -2,6 +2,7 @@ import copy
 from unittest.mock import patch
 
 from fastapi import Response
+
 from frigate.api.auth import get_allowed_cameras_for_filter
 from frigate.models import Event, Export, ExportCase, Recordings
 from frigate.test.http_api.base_http_test import AuthTestClient, BaseTestHttp
@@ -203,6 +204,25 @@ class TestHttpMultiCam(BaseTestHttp):
             patch(
                 "frigate.api.auth._authenticate_request",
                 return_value=Response(
+                    status_code=202, headers={"remote-role": "limited"}
+                ),
+            ),
+            AuthTestClient(self.app) as client,
+        ):
+            self.assertEqual(
+                client.get(
+                    "/auth",
+                    headers={
+                        "x-original-url": "http://frigate/exports/multicam_test.mp4",
+                        "x-ingress-path": "/exports",
+                    },
+                ).status_code,
+                403,
+            )
+        with (
+            patch(
+                "frigate.api.auth._authenticate_request",
+                return_value=Response(
                     status_code=202, headers={"remote-role": "admin"}
                 ),
             ),
@@ -226,3 +246,15 @@ class TestHttpMultiCam(BaseTestHttp):
                 ).status_code,
                 403,
             )
+            for path in (
+                "nested/multicam_test.mp4",
+                "multicam%5Ftest.mp4/multicam_test.mp4",
+                "multicamXtest.mp4",
+            ):
+                self.assertEqual(
+                    client.get(
+                        "/auth",
+                        headers={"x-original-url": f"http://frigate/exports/{path}"},
+                    ).status_code,
+                    403,
+                )

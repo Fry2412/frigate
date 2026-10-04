@@ -17,6 +17,11 @@ from urllib.parse import unquote, urlencode, urlparse
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
+from joserfc import jwt
+from joserfc.jwk import KeySet
+from peewee import DoesNotExist
+from slowapi import Limiter
+
 from frigate.api.defs.request.app_body import (
     AppPostLoginBody,
     AppPostUsersBody,
@@ -25,12 +30,14 @@ from frigate.api.defs.request.app_body import (
 )
 from frigate.api.defs.tags import Tags
 from frigate.config import AuthConfig, NetworkingConfig, ProxyConfig
-from frigate.const import CONFIG_DIR, JWT_SECRET_ENV_VAR, PASSWORD_HASH_ALGORITHM
+from frigate.const import (
+    CLIPS_DIR,
+    CONFIG_DIR,
+    EXPORT_DIR,
+    JWT_SECRET_ENV_VAR,
+    PASSWORD_HASH_ALGORITHM,
+)
 from frigate.models import Export, User
-from joserfc import jwt
-from joserfc.jwk import KeySet
-from peewee import DoesNotExist
-from slowapi import Limiter
 
 logger = logging.getLogger(__name__)
 
@@ -988,18 +995,19 @@ def auth(request: Request):
     if response.status_code != 202:
         return response
     path = unquote(urlparse(request.headers.get("x-original-url", "")).path)
-    ingress = request.headers.get("x-ingress-path", "").rstrip("/")
-    if ingress and path.startswith(ingress + "/"):
-        path = path[len(ingress) :]
     if path.startswith("/exports/") or path.startswith("/clips/export/"):
         # nginx sends this header itself. Never expose private staging files
         # or authorize a composite on its first camera alone.
-        filename = path.rsplit("/", 1)[-1]
-        if "/.multicam/" in path or not filename:
+        prefix = "/exports/" if path.startswith("/exports/") else "/clips/export/"
+        filename = path[len(prefix) :]
+        if "/" in filename or filename in ("", ".", ".."):
             return Response(status_code=403)
+        directory = (
+            EXPORT_DIR if prefix == "/exports/" else os.path.join(CLIPS_DIR, "export")
+        )
+        media_path = os.path.join(directory, filename)
         export = Export.get_or_none(
-            (Export.video_path.endswith("/" + filename))
-            | (Export.thumb_path.endswith("/" + filename))
+            (Export.video_path == media_path) | (Export.thumb_path == media_path)
         )
         if export is None:
             return Response(status_code=403)

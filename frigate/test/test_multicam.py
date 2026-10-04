@@ -10,6 +10,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from playhouse.sqlite_ext import SqliteExtDatabase
+from pydantic import ValidationError
+
 from frigate.jobs.export import (
     ExportJob,
     ExportJobManager,
@@ -24,8 +27,6 @@ from frigate.record.multicam import (
     plan_cameras,
 )
 from frigate.util.builtin import clear_and_unlink
-from playhouse.sqlite_ext import SqliteExtDatabase
-from pydantic import ValidationError
 
 
 class TestMultiCamPlan(unittest.TestCase):
@@ -186,6 +187,38 @@ class TestMultiCamMedia(unittest.TestCase):
         self.assertFalse(export.in_progress)
         self.assertFalse(renderer.directory.exists())
         self.assertEqual(progress[-1], 100)
+
+    def test_running_encoder_stops_when_free_space_drops(self):
+        renderer = MultiCamRenderer(self.config, self.job)
+        renderer.directory.mkdir(parents=True)
+        with (
+            patch("frigate.record.multicam.subprocess.Popen") as popen,
+            patch("frigate.record.multicam.time.monotonic", side_effect=[0, 3, 3]),
+            patch(
+                "frigate.record.multicam.shutil.disk_usage",
+                side_effect=[SimpleNamespace(free=1024**3), SimpleNamespace(free=0)],
+            ),
+        ):
+            popen.return_value.poll.return_value = None
+            with self.assertRaisesRegex(RuntimeError, "Insufficient free space"):
+                renderer._run([])
+            popen.return_value.terminate.assert_called_once()
+            popen.return_value.wait.assert_called_once_with(timeout=5)
+        renderer.cleanup()
+
+    def test_running_encoder_responds_to_cancellation(self):
+        renderer = MultiCamRenderer(self.config, self.job)
+        renderer.directory.mkdir(parents=True)
+        with (
+            patch("frigate.record.multicam.subprocess.Popen") as popen,
+            patch.object(renderer.cancelled, "wait", return_value=True),
+            patch.object(renderer.cancelled, "is_set", side_effect=[False, True]),
+        ):
+            popen.return_value.poll.return_value = None
+            with self.assertRaises(ExportCancelled):
+                renderer._run([])
+            popen.return_value.terminate.assert_called_once()
+        renderer.cleanup()
 
     def test_cancellation_removes_pins_row_and_partial_media(self):
         renderer = MultiCamRenderer(self.config, self.job)
