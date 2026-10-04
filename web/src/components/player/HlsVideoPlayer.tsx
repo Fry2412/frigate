@@ -523,14 +523,20 @@ export default function HlsVideoPlayer({
               const frameTime = getVideoTime();
 
               if (frameTime && onUploadFrame) {
-                const resp = await onUploadFrame(frameTime);
+                try {
+                  const resp = await onUploadFrame(frameTime);
 
-                if (resp && resp.status == 200) {
-                  toast.success(t("toast.success.submittedFrigatePlus"), {
-                    position: "top-center",
-                  });
-                } else {
-                  toast.success(t("toast.error.submitFrigatePlusFailed"), {
+                  if (resp && resp.status == 200) {
+                    toast.success(t("toast.success.submittedFrigatePlus"), {
+                      position: "top-center",
+                    });
+                  } else {
+                    toast.error(t("toast.error.submitFrigatePlusFailed"), {
+                      position: "top-center",
+                    });
+                  }
+                } catch {
+                  toast.error(t("toast.error.submitFrigatePlusFailed"), {
                     position: "top-center",
                   });
                 }

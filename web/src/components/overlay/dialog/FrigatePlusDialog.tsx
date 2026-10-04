@@ -21,6 +21,7 @@ import { baseUrl } from "@/api/baseUrl";
 import { getTranslatedLabel } from "@/utils/i18n";
 import useImageLoaded from "@/hooks/use-image-loaded";
 import { useIsAdmin } from "@/hooks/use-is-admin";
+import { toast } from "sonner";
 
 export type FrigatePlusDialogProps = {
   upload?: Event;
@@ -35,7 +36,10 @@ export function FrigatePlusDialog({
   onClose,
   onEventUploaded,
 }: FrigatePlusDialogProps) {
-  const { t, i18n } = useTranslation(["components/dialog"]);
+  const { t, i18n } = useTranslation([
+    "components/dialog",
+    "components/player",
+  ]);
 
   type SubmissionState = "reviewing" | "uploading" | "submitted";
   const [state, setState] = useState<SubmissionState>(
@@ -48,13 +52,30 @@ export function FrigatePlusDialog({
   const onSubmitToPlus = useCallback(
     async (falsePositive: boolean) => {
       if (!upload) return;
-      falsePositive
-        ? axios.put(`events/${upload.id}/false_positive`)
-        : axios.post(`events/${upload.id}/plus`, { include_annotation: 1 });
-      setState("submitted");
-      onEventUploaded();
+      try {
+        if (falsePositive) {
+          await axios.put(`events/${upload.id}/false_positive`);
+        } else {
+          await axios.post(`events/${upload.id}/plus`, {
+            include_annotation: 1,
+          });
+        }
+
+        setState("submitted");
+        onEventUploaded();
+      } catch (error) {
+        setState("reviewing");
+        const responseMessage =
+          axios.isAxiosError(error) &&
+          (error.response?.data?.message || error.response?.data?.detail)
+            ? error.response?.data?.message || error.response?.data?.detail
+            : t("toast.error.submitFrigatePlusFailed", {
+                ns: "components/player",
+              });
+        toast.error(responseMessage, { position: "top-center" });
+      }
     },
-    [upload, onEventUploaded],
+    [upload, onEventUploaded, t],
   );
 
   const [imgRef, imgLoaded, onImgLoad] = useImageLoaded();

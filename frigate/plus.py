@@ -68,6 +68,13 @@ class PlusApi:
         self._session.mount(
             self.host, HTTPAdapter(max_retries=Retry(connect=5, backoff_factor=1))
         )
+        # Image bytes are uploaded to the object-storage host returned by the
+        # API, not to api.frigate.video. Retry transient connection failures
+        # for those signed-URL uploads as well.
+        self._upload_session = requests.Session()
+        self._upload_session.mount(
+            "https://", HTTPAdapter(max_retries=Retry(connect=5, backoff_factor=1))
+        )
 
     def _refresh_token_if_needed(self) -> None:
         if (
@@ -120,7 +127,9 @@ class PlusApi:
         files = {"file": get_jpg_bytes(image, 1920, 85)}
         data = presigned_urls["original"]["fields"]
         data["content-type"] = "image/jpeg"
-        r = requests.post(presigned_urls["original"]["url"], files=files, data=data)
+        r = self._upload_session.post(
+            presigned_urls["original"]["url"], files=files, data=data
+        )
         if not r.ok:
             logger.error(f"Failed to upload original: {r.status_code} {r.text}")
             raise Exception(r.text)
@@ -129,7 +138,9 @@ class PlusApi:
         files = {"file": get_jpg_bytes(image, 200, 70)}
         data = presigned_urls["thumbnail"]["fields"]
         data["content-type"] = "image/jpeg"
-        r = requests.post(presigned_urls["thumbnail"]["url"], files=files, data=data)
+        r = self._upload_session.post(
+            presigned_urls["thumbnail"]["url"], files=files, data=data
+        )
         if not r.ok:
             logger.error(f"Failed to upload thumbnail: {r.status_code} {r.text}")
             raise Exception(r.text)

@@ -699,6 +699,7 @@ function ObjectDetailsTab({
     "views/explore",
     "views/faceLibrary",
     "components/dialog",
+    "components/player",
   ]);
 
   const apiHost = useApiHost();
@@ -1250,30 +1251,44 @@ function ObjectDetailsTab({
         return;
       }
 
-      falsePositive
-        ? axios.put(`events/${search.id}/false_positive`)
-        : axios.post(`events/${search.id}/plus`, {
+      try {
+        if (falsePositive) {
+          await axios.put(`events/${search.id}/false_positive`);
+        } else {
+          await axios.post(`events/${search.id}/plus`, {
             include_annotation: 1,
           });
+        }
 
-      setState("submitted");
-      setSearch({ ...search, plus_id: "new_upload" });
-      mutate(
-        (key) => isEventsKey(key),
-        (currentData: SearchResult[][] | SearchResult[] | undefined) =>
-          mapSearchResults(currentData, (event) =>
-            event.id === search.id
-              ? { ...event, plus_id: "new_upload" }
-              : event,
-          ),
-        {
-          optimisticData: true,
-          rollbackOnError: true,
-          revalidate: false,
-        },
-      );
+        setState("submitted");
+        setSearch({ ...search, plus_id: "new_upload" });
+        mutate(
+          (key) => isEventsKey(key),
+          (currentData: SearchResult[][] | SearchResult[] | undefined) =>
+            mapSearchResults(currentData, (event) =>
+              event.id === search.id
+                ? { ...event, plus_id: "new_upload" }
+                : event,
+            ),
+          {
+            optimisticData: true,
+            rollbackOnError: true,
+            revalidate: false,
+          },
+        );
+      } catch (error) {
+        setState("reviewing");
+        const responseMessage =
+          axios.isAxiosError(error) &&
+          (error.response?.data?.message || error.response?.data?.detail)
+            ? error.response?.data?.message || error.response?.data?.detail
+            : t("toast.error.submitFrigatePlusFailed", {
+                ns: "components/player",
+              });
+        toast.error(responseMessage, { position: "top-center" });
+      }
     },
-    [search, mutate, mapSearchResults, setSearch, isEventsKey],
+    [search, mutate, mapSearchResults, setSearch, isEventsKey, t],
   );
 
   const popoverContainerRef = useRef<HTMLDivElement | null>(null);
