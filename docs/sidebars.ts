@@ -101,6 +101,7 @@ const sidebars: SidebarsConfig = {
         "configuration/advanced",
       ],
     },
+    Usage: ["usage/multicam-export"],
     Integrations: [
       "integrations/plus",
       "integrations/home-assistant",

@@ -6235,6 +6235,128 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DebugReplayStopResponse"
+  /exports/multicam/journey:
+    post:
+      tags:
+      - Export
+      summary: Journey Candidates
+      operationId: journey_candidates_exports_multicam_journey_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JourneyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /exports/multicam/journey/plan:
+    post:
+      tags:
+      - Export
+      summary: Confirmed Journey Plan
+      operationId: confirmed_journey_plan_exports_multicam_journey_plan_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JourneyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /exports/multicam/preview:
+    post:
+      tags:
+      - Export
+      summary: Preview Multicam
+      operationId: preview_multicam_exports_multicam_preview_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultiCamExportBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /exports/multicam:
+    post:
+      tags:
+      - Export
+      summary: Start Multicam
+      operationId: start_multicam_exports_multicam_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultiCamExportBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartExportResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /exports/multicam/{export_id}/cancel:
+    post:
+      tags:
+      - Export
+      summary: Cancel Multicam
+      operationId: cancel_multicam_exports_multicam__export_id__cancel_post
+      parameters:
+      - name: export_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Export Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     ChaptersEnum:
@@ -7094,21 +7216,26 @@ components:
           type: boolean
           title: In Progress
           description: Whether the export is currently being processed
+        composite_plan:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Composite Plan
         export_case_id:
           anyOf:
-            - type: string
-            - type: "null"
+          - type: string
+          - type: 'null'
           title: Export Case Id
           description: ID of the export case this export belongs to
       type: object
       required:
-        - id
-        - camera
-        - name
-        - date
-        - video_path
-        - thumb_path
-        - in_progress
+      - id
+      - camera
+      - name
+      - date
+      - video_path
+      - thumb_path
+      - in_progress
       title: ExportModel
       description: Model representing a single export.
     ExportRecordingsBody:
@@ -7783,6 +7910,173 @@ components:
 
         nginx-vod derives its mapping fetch URI from the playlist URL path
         (query params are dropped), so the preference must be a path segment.
+    JourneyRequest:
+      properties:
+        cameras:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          minItems: 1
+          title: Cameras
+        after:
+          type: number
+          minimum: 0.0
+          title: After
+        before:
+          type: number
+          minimum: 0.0
+          title: Before
+        seed_id:
+          anyOf:
+          - type: string
+            maxLength: 30
+          - type: 'null'
+          title: Seed Id
+        selected_event_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 64
+          title: Selected Event Ids
+        mode:
+          type: string
+          pattern: ^(follow|grid)$
+          title: Mode
+          default: follow
+        min_shot:
+          type: number
+          maximum: 10.0
+          minimum: 1.0
+          title: Min Shot
+          default: 3
+        pre_capture:
+          type: number
+          maximum: 10.0
+          minimum: 0.0
+          title: Pre Capture
+          default: 2
+        post_capture:
+          type: number
+          maximum: 10.0
+          minimum: 0.0
+          title: Post Capture
+          default: 2
+        transitions:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          type: object
+          title: Transitions
+        clock_offsets:
+          additionalProperties:
+            type: number
+          type: object
+          title: Clock Offsets
+      additionalProperties: false
+      type: object
+      required:
+      - cameras
+      - after
+      - before
+      title: JourneyRequest
+    MultiCamExportBody:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+          default: MultiCam
+        plan:
+          $ref: '#/components/schemas/MultiCamPlan'
+      additionalProperties: false
+      type: object
+      required:
+      - plan
+      title: MultiCamExportBody
+    MultiCamPlan:
+      properties:
+        version:
+          type: integer
+          const: 1
+          title: Version
+          default: 1
+        shots:
+          items:
+            $ref: '#/components/schemas/Shot'
+          type: array
+          maxItems: 64
+          minItems: 1
+          title: Shots
+        stream:
+          type: string
+          enum:
+          - auto
+          - main
+          - sub
+          title: Stream
+          default: auto
+        width:
+          type: integer
+          enum:
+          - 1280
+          - 1920
+          title: Width
+          default: 1280
+        fps:
+          type: integer
+          enum:
+          - 15
+          - 25
+          - 30
+          title: Fps
+          default: 15
+        audio_camera:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Audio Camera
+        clock_offsets:
+          additionalProperties:
+            type: number
+          type: object
+          title: Clock Offsets
+      additionalProperties: false
+      type: object
+      required:
+      - shots
+      title: MultiCamPlan
+    Shot:
+      properties:
+        start:
+          type: number
+          minimum: 0.0
+          title: Start
+        end:
+          type: number
+          minimum: 0.0
+          title: End
+        cameras:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          title: Cameras
+        event_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 4
+          title: Event Ids
+      additionalProperties: false
+      type: object
+      required:
+      - start
+      - end
+      - cameras
+      title: Shot
   securitySchemes:
     frigateAdminAuth:
       type: apiKey

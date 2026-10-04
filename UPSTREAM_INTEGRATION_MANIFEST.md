@@ -15,11 +15,11 @@ This is a topic integration, not a replay of the upstream commit gap.
 | Substream capture, coverage and adaptive playback (#24009) | `1498231eb` | `aaef126ba`, adapted for custom multicamera controllers |
 | VOD startup/keyframe performance (#24011) | `e77155a4f` | `7d9657423` |
 | Recording recovery and substream fixes (#24072) | `53fb6c8da` | `62bd1115d` |
-| Mixed main/sub recording export (#24193) | `82be9fff5` | Adapted; export verification in progress |
-| Live technology choice (#24374) | `64d6366ac` | Pending dependency audit |
-| Streaming fixes (#24498) | `a1c8bf99a` | Pending |
-| Camera-group live grid (#24461) | `0977fa5e1` | Pending dependency audit |
-| Auto live quality/transcoding (#24519) | `2754f788c` | Pending dependency audit |
+| Mixed main/sub recording export (#24193) | `82be9fff5` | ddf3a1b92; real media and migration checks passed |
+| Live technology choice (#24374) | `64d6366ac` | Integrated |
+| Streaming fixes (#24498) | `a1c8bf99a` | 7583062e8; scoped streaming fixes |
+| Camera-group live grid (#24461) | `0977fa5e1` | Integrated |
+| Auto live quality/transcoding (#24519) | `2754f788c` | Integrated |
 | Role health/coupling (#24522, #24544) | `321e78e65`, `f3723698c` | Reconciled with per-stream RoleStatus in `62bd1115d` |
 
 Local features after the foundations: persisted edit plan, composite export source
@@ -39,12 +39,13 @@ Preserve OIDC/hybrid authentication, route-template admin protection, preview
 recovery/cache behavior, synchronized playback, playback-rate propagation and
 explicit recording-gap handling. Keep new rendering off the capture pipeline.
 
-Validation so far: TypeScript and ESLint pass for adapted playback files; three
-Vitest regressions cover gaps, keyframe lead-in and unequal multicamera coverage.
-132 config/coverage/keyframe/export-progress tests and 26 retention/maintainer tests
-pass. HTTP suite: 99 tests, one inherited `cameras=all` failure found and corrected;
-the corrected case and three maintainer regressions pass. Full integration, media
-fixtures and migration-upgrade checks remain pending.
+Validation: production frontend build and TypeScript checks passed. Ten Vitest
+regressions cover playback, the live governor, plan timing and the export dialog.
+Backend checks include real FFmpeg rendering, main/sub handoff, fixed audio,
+recording gaps, short-cut duration, cancellation, restart cleanup, recording
+leases, migrations and camera permissions. Final combined results are recorded
+below. Real browser/camera and deployment image acceptance remain for the user's
+setup; no image build or push is claimed.
 
 Frontend installation uses `npm ci --registry=https://registry.npmjs.org` because
 the machine's default npm registry redirects through a private corporate service.
@@ -61,4 +62,31 @@ Real media validation: main/sub resolution handoff decodes red main then blue su
 with the expected four-second duration and staged-file cleanup. A legacy recording
 row survives actual migrations 036/037, is assigned `main`, and retains its original
 path and timestamps. The HTTP export suite passes apart from a missing test import
-that was corrected; final rerun is in progress.
+that was corrected; the final HTTP rerun passed.
+
+## Completed local features
+
+Live technology: 112692939; live grid: 7998bfcbf; Auto/transcoding: 6ec01020f.
+Composite backend: bde658d4d; recording editor/preview: 35238518f.
+Media timing/audio/metadata tests: bd7a24e4f.
+Assisted person/animal journey: 7322badad.
+Retention-safe leases and legacy audio: cabe31648.
+
+The journey editor uses confirmed observations, directional camera transitions,
+clock correction and follow/grid composition. It does not assert global identity
+across camera trackers. Optional visual re-identification remains future work.
+
+Composite rendering is bounded to four source cameras, 64 shots, one hour and
+four admitted jobs. CPU workers run outside capture. Private recording hard links
+require recordings and exports on the same filesystem. The existing main-push
+image workflow is retained. Unrelated model-scene/classification, Debug Replay
+and container privilege migrations remain outside this topic integration.
+
+Final combined backend run: 373 tests passed (Python 3.11/Linux, 44.1 seconds).
+Frontend: ten Vitest tests passed; production Vite/TypeScript build passed.
+
+Final safety rerun: 56 tests passed, including running encoder cancellation and
+low-space termination. API YAML parses without duplicate keys or missing schemas.
+
+Final Ruff checks passed for all 76 changed Python files; syntax parsing and
+git diff --check passed. Integration was fast-forwarded to local main; not pushed.

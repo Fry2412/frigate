@@ -1,9 +1,11 @@
 # Streaming integration and multicamera export plan
 
-Planning date: 2026-10-04. This document proposes implementation; it does not
-authorize a complete upstream replay or claim that these features are implemented.
+Planning date: 2026-10-04. The proposal below describes the original baseline.
+The bounded integration and implementation phases are now complete; see
+UPSTREAM_INTEGRATION_MANIFEST.md for commits and verification. Optional visual
+identity matching remains future work. No complete upstream replay was performed.
 
-## Current baseline
+## Original baseline
 
 - The fork has custom synchronized recording playback, recording-gap handling,
   preview recovery, OIDC and hybrid proxy authentication.

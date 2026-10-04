@@ -29,19 +29,17 @@ upstream `secrets.yaml` loader is not included.
 
 ## Still pending — this is not a complete upstream synchronization
 
-- #24374 streaming technology selection, #24498 playback/WebRTC fixes,
-  #24461 camera-group grid, and #24519 Auto quality / transcoding / ordered-map
-  persistence require a coordinated integration of their newer prerequisites.
-- Main/substream recording and adaptive playback prerequisites are absent in
-  the fork. The #24544 shared-detect / `record_sub` coupling is therefore pending;
-  only the status-cache and current recording-recovery portions are integrated.
+- Streaming technology selection, playback fixes, the live camera grid,
+  Auto quality/transcoding and main/substream recording were subsequently
+  integrated on 2026-10-04. See UPSTREAM_INTEGRATION_MANIFEST.md.
 - #24503 classification state changes in review / GenAI and #24508 model-scene
   refactoring remain pending. The functional #24534 detection fix was ported
   separately and does not claim to include these features.
 - The full gap from the common base is 748 first-parent upstream commits,
   including version, container-hardening and dependency changes. Automatic
   approval review rejected replaying all 748 commits as too broad for a selected
-  topic integration. Explicit user scope approval was requested; no replay ran.
+  topic integration. No replay ran. The subsequently authorized bounded feature integration is
+  complete and requires no further scope approval.
 
 ## Validation
 
