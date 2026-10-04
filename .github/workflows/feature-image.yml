@@ -1,13 +1,14 @@
-name: Feature image
+name: Fork image
 
 on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - "feat/**"
 
 concurrency:
-  group: feature-image-${{ github.ref }}
+  group: fork-image-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -16,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: Build and publish feature image
+    name: Build and publish fork image
     runs-on: ubuntu-22.04
     steps:
       - name: Check out code
@@ -35,21 +36,37 @@ jobs:
         with:
           string: ${{ github.repository }}
 
-      - name: Create image tag
+      - name: Create image tags
         id: metadata
         shell: bash
-        run: echo "tag=feature-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}
+        run: |
+          prefix=feature
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            prefix=main
+          fi
 
-      - name: Build and push default feature image
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:${prefix}-${GITHUB_SHA::7}"
+            if [[ "$prefix" == "main" ]]; then
+              echo "${IMAGE}:main"
+            fi
+            echo "EOF"
+            echo "cache=${IMAGE}:${prefix}-cache"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push default fork image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/main/Dockerfile
           target: frigate
           push: true
-          # Feature builds target the runner's default architecture. Frigate's
+          # Fork builds target the runner's default architecture. Frigate's
           # release pipeline remains responsible for multi-architecture images.
           platforms: linux/amd64
-          tags: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:${{ steps.metadata.outputs.tag }}
-          cache-from: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache
-          cache-to: type=registry,ref=ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:feature-cache,mode=max
+          tags: ${{ steps.metadata.outputs.tags }}
+          cache-from: type=registry,ref=${{ steps.metadata.outputs.cache }}
+          cache-to: type=registry,ref=${{ steps.metadata.outputs.cache }},mode=max
