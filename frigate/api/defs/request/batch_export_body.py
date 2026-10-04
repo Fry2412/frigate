@@ -1,7 +1,8 @@
 from typing import List, Optional
 
-from frigate.record.export import ExportStreamEnum
 from pydantic import BaseModel, Field, model_validator
+
+from frigate.record.export import ExportStreamEnum
 
 MAX_BATCH_EXPORT_ITEMS = 50
 

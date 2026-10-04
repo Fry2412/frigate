@@ -18,6 +18,10 @@ import numpy as np
 import pytz
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pathvalidate import sanitize_filename
+from peewee import DoesNotExist, fn
+from tzlocal import get_localzone_name
+
 from frigate.api.auth import (
     allow_any_authenticated,
     require_camera_access,
@@ -56,9 +60,6 @@ from frigate.util.recording_coverage import (
     plan_clip,
     resolve_coverage,
 )
-from pathvalidate import sanitize_filename
-from peewee import DoesNotExist, fn
-from tzlocal import get_localzone_name
 
 logger = logging.getLogger(__name__)
 

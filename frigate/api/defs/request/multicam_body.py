@@ -1,5 +1,6 @@
-from frigate.record.multicam import MultiCamPlan
 from pydantic import BaseModel, ConfigDict, Field
+
+from frigate.record.multicam import MultiCamPlan
 
 
 class MultiCamExportBody(BaseModel):

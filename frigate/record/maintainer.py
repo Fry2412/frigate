@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 import psutil
+from peewee import fn
+
 from frigate.comms.detections_updater import DetectionSubscriber, DetectionTypeEnum
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.comms.recordings_updater import (
@@ -42,7 +44,6 @@ from frigate.models import Recordings, ReviewSegment
 from frigate.review.types import SeverityEnum
 from frigate.util.media import get_keyframe_offsets
 from frigate.util.services import get_video_properties
-from peewee import fn
 
 logger = logging.getLogger(__name__)
 

@@ -5,12 +5,13 @@ from copy import deepcopy
 from unittest.mock import patch
 
 import numpy as np
+from pydantic import ValidationError
+from ruamel.yaml.constructor import DuplicateKeyError
+
 from frigate.config import BirdseyeModeEnum, FrigateConfig, RetainModeEnum
 from frigate.const import MODEL_CACHE_DIR
 from frigate.detectors import DetectorTypeEnum
 from frigate.util.builtin import deep_merge, load_labels
-from pydantic import ValidationError
-from ruamel.yaml.constructor import DuplicateKeyError
 
 
 class TestConfig(unittest.TestCase):

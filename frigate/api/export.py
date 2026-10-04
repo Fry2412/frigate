@@ -11,6 +11,10 @@ from typing import List, Optional
 import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pathvalidate import sanitize_filepath
+from peewee import DoesNotExist
+from playhouse.shortcuts import model_to_dict
+
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
@@ -78,9 +82,6 @@ from frigate.util.recording_coverage import (
     resolve_coverage,
 )
 from frigate.util.time import is_current_hour
-from pathvalidate import sanitize_filepath
-from peewee import DoesNotExist
-from playhouse.shortcuts import model_to_dict
 
 logger = logging.getLogger(__name__)
 

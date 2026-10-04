@@ -10,6 +10,7 @@ from collections import defaultdict
 
 import cv2
 import numpy as np
+
 from frigate.comms.embeddings_updater import EmbeddingsRequestEnum, EmbeddingsRequestor
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FfmpegConfig

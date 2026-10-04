@@ -1,12 +1,13 @@
 from typing import Optional, Union
 
+from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
+
 from frigate.record.export import (
     ChaptersEnum,
     ExportStreamEnum,
     PlaybackSourceEnum,
 )
-from pydantic import BaseModel, Field
-from pydantic.json_schema import SkipJsonSchema
 
 
 class ExportRecordingsBody(BaseModel):

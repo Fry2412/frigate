@@ -5,6 +5,8 @@ import json
 import unittest
 from types import SimpleNamespace
 
+from playhouse.sqlite_ext import SqliteExtDatabase
+
 from frigate.api.media import _vod_response
 from frigate.const import MAX_SEGMENT_DURATION
 from frigate.models import Recordings
@@ -16,7 +18,6 @@ from frigate.util.recording_coverage import (
     resolve_coverage,
     stream_media_summary,
 )
-from playhouse.sqlite_ext import SqliteExtDatabase
 
 
 class CoverageDbTestCase(unittest.TestCase):

@@ -1,9 +1,10 @@
 from enum import Enum
 from typing import Union
 
+from pydantic import Field
+
 from frigate.const import MAX_PRE_CAPTURE, STREAM_TYPE_SUB
 from frigate.review.types import SeverityEnum
-from pydantic import Field
 
 from ..base import FrigateBaseModel
 

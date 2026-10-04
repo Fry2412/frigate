@@ -18,13 +18,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
+from ruamel.yaml import YAML
+
 from frigate.const import (
     REGEX_HTTP_CAMERA_USER_PASS,
     REGEX_RTSP_CAMERA_USER_PASS,
     STREAM_TYPE_MAIN,
     STREAM_TYPE_SUB,
 )
-from ruamel.yaml import YAML
 
 if TYPE_CHECKING:
     from frigate.config import CameraConfig

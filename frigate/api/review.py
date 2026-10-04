@@ -10,6 +10,9 @@ import pandas as pd
 from fastapi import APIRouter, Request
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse
+from peewee import Case, DoesNotExist, IntegrityError, fn, operator
+from playhouse.shortcuts import model_to_dict
+
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
@@ -35,8 +38,6 @@ from frigate.embeddings import EmbeddingsContext
 from frigate.models import Recordings, ReviewSegment, UserReviewStatus
 from frigate.review.types import SeverityEnum
 from frigate.util.time import get_dst_transitions
-from peewee import Case, DoesNotExist, IntegrityError, fn, operator
-from playhouse.shortcuts import model_to_dict
 
 logger = logging.getLogger(__name__)
 

@@ -4,10 +4,11 @@ import datetime
 import unittest
 from unittest.mock import MagicMock
 
+from playhouse.sqlite_ext import SqliteExtDatabase
+
 from frigate.config import FrigateConfig
 from frigate.events.cleanup import EventCleanup
 from frigate.models import Event, Timeline
-from playhouse.sqlite_ext import SqliteExtDatabase
 
 
 class TestEventCleanupSubRetention(unittest.TestCase):

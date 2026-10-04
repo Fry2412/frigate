@@ -10,6 +10,8 @@ from pathlib import Path
 from queue import Full, Queue
 from typing import Any, Callable, Optional
 
+from peewee import DoesNotExist
+
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
 from frigate.config.camera.record import ChaptersEnum
@@ -23,7 +25,6 @@ from frigate.record.export import (
 )
 from frigate.record.multicam import ExportCancelled, MultiCamRenderer, plan_cameras
 from frigate.types import JobStatusTypesEnum
-from peewee import DoesNotExist
 
 logger = logging.getLogger(__name__)
 

@@ -2,8 +2,9 @@
 
 import math
 
-from frigate.record.multicam import MultiCamPlan, Shot
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from frigate.record.multicam import MultiCamPlan, Shot
 
 FOLLOW_LABELS = {
     "person",

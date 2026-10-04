@@ -6,6 +6,18 @@ import os
 from typing import Any, Dict, Optional
 
 import numpy as np
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+from ruamel.yaml import YAML
+from typing_extensions import Self
+
 from frigate.const import REGEX_JSON
 from frigate.detectors import DetectorConfig, ModelConfig
 from frigate.detectors.detector_config import BaseDetectorConfig
@@ -31,17 +43,6 @@ from frigate.util.live_streams import (
     transcode_streams,
 )
 from frigate.util.services import auto_detect_hwaccel
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    TypeAdapter,
-    ValidationInfo,
-    field_validator,
-    model_validator,
-)
-from ruamel.yaml import YAML
-from typing_extensions import Self
 
 from .auth import AuthConfig
 from .base import FrigateBaseModel

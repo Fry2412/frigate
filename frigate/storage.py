@@ -6,6 +6,8 @@ import threading
 from multiprocessing.synchronize import Event as MpEvent
 from pathlib import Path
 
+from peewee import SQL, Case, fn
+
 from frigate.config import FrigateConfig
 from frigate.const import (
     RECORD_DIR,
@@ -15,7 +17,6 @@ from frigate.const import (
 )
 from frigate.models import Event, Recordings
 from frigate.util.builtin import clear_and_unlink
-from peewee import SQL, Case, fn
 
 logger = logging.getLogger(__name__)
 bandwidth_equation = Recordings.segment_size / (

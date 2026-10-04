@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+
 from frigate.config.camera.record import ChaptersEnum
 from frigate.record.export import ExportStreamEnum, RecordingExporter, StreamRun
 from frigate.util.ffmpeg import run_ffmpeg_with_progress

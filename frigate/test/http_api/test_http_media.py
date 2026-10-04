@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytz
 from fastapi import Request
+
 from frigate.api.auth import get_allowed_cameras_for_filter, get_current_user
 from frigate.const import MAX_SEGMENT_DURATION
 from frigate.models import Event, Recordings

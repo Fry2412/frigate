@@ -11,6 +11,8 @@ from urllib.parse import unquote
 from fastapi import APIRouter, Depends, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
+from peewee import fn, operator
+
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
@@ -39,7 +41,6 @@ from frigate.util.recording_coverage import (
     stream_media_summary,
 )
 from frigate.util.time import get_dst_transitions
-from peewee import fn, operator
 
 logger = logging.getLogger(__name__)
 

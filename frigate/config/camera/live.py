@@ -1,4 +1,5 @@
 from typing import Dict
+
 from pydantic import Field, field_validator
 
 from frigate.util.live_streams import DEFAULT_TRANSCODE_QUALITIES

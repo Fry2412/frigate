@@ -1,8 +1,9 @@
 from enum import Enum
 from typing import Union
 
-from frigate.const import DEFAULT_FFMPEG_VERSION, INCLUDED_FFMPEG_VERSIONS
 from pydantic import Field, field_validator
+
+from frigate.const import DEFAULT_FFMPEG_VERSION, INCLUDED_FFMPEG_VERSIONS
 
 from ..base import FrigateBaseModel
 from ..env import EnvString

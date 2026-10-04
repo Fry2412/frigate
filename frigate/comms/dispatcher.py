@@ -5,8 +5,6 @@ import json
 import logging
 from typing import Any, Callable, Optional, cast
 
-from peewee import IntegrityError
-
 from frigate.camera import PTZMetrics
 from frigate.camera.activity_manager import AudioActivityManager, CameraActivityManager
 from frigate.comms.base_communicator import Communicator
@@ -42,6 +40,7 @@ from frigate.ptz.onvif import OnvifCommandEnum, OnvifController
 from frigate.types import ModelStatusTypesEnum, TrackedObjectUpdateTypesEnum
 from frigate.util.object import get_camera_regions_grid
 from frigate.util.services import restart_frigate
+from peewee import IntegrityError
 
 logger = logging.getLogger(__name__)
 

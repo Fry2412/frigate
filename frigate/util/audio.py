@@ -5,9 +5,10 @@ import os
 import subprocess as sp
 from typing import Optional
 
+from pathvalidate import sanitize_filename
+
 from frigate.const import CACHE_DIR, STREAM_TYPE_MAIN, STREAM_TYPE_SUB
 from frigate.models import Recordings
-from pathvalidate import sanitize_filename
 
 logger = logging.getLogger(__name__)
 

@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pytz
+from pathvalidate import sanitize_filename
+from peewee import DoesNotExist
+
 from frigate.config import FfmpegConfig, FrigateConfig
 from frigate.config.camera.record import ChaptersEnum
 from frigate.const import (
@@ -44,8 +47,6 @@ from frigate.util.recording_coverage import (
 )
 from frigate.util.services import get_video_properties
 from frigate.util.time import is_current_hour
-from pathvalidate import sanitize_filename
-from peewee import DoesNotExist
 
 logger = logging.getLogger(__name__)
 

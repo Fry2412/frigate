@@ -8,6 +8,8 @@ import unittest
 from collections import defaultdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from playhouse.sqlite_ext import SqliteExtDatabase
+
 from frigate.config import FrigateConfig
 from frigate.models import Recordings
 from frigate.record.maintainer import (
@@ -16,7 +18,6 @@ from frigate.record.maintainer import (
     parse_cache_segment_name,
     segment_path_time,
 )
-from playhouse.sqlite_ext import SqliteExtDatabase
 
 
 def _build_chaining_maintainer(

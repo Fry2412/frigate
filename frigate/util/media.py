@@ -10,6 +10,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from peewee import DatabaseError, chunked
+
 from frigate.const import (
     CLIPS_DIR,
     DEFAULT_FFMPEG_VERSION,
@@ -25,7 +27,6 @@ from frigate.models import (
     RecordingsToDelete,
     ReviewSegment,
 )
-from peewee import DatabaseError, chunked
 
 logger = logging.getLogger(__name__)
 

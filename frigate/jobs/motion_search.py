@@ -10,6 +10,7 @@ from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
+
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
 from frigate.const import STREAM_TYPE_MAIN, UPDATE_JOB_STATE

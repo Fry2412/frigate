@@ -2,6 +2,8 @@ import os
 from enum import Enum
 from typing import Optional
 
+from pydantic import Field, PrivateAttr, model_validator
+
 from frigate.const import (
     CACHE_DIR,
     CACHE_SEGMENT_FORMAT,
@@ -19,7 +21,6 @@ from frigate.util.builtin import (
     generate_color_palette,
     get_ffmpeg_arg_list,
 )
-from pydantic import Field, PrivateAttr, model_validator
 
 from ..base import FrigateBaseModel
 from ..classification import (

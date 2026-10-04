@@ -19,6 +19,7 @@ import cv2
 import psutil
 import py3nvml.py3nvml as nvml
 import requests
+
 from frigate.const import (
     DRIVER_AMD,
     DRIVER_ENV_VAR,
