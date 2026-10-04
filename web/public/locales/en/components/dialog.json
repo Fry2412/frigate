@@ -187,5 +187,37 @@
       "placeholder": "Search by label or sub label..."
     },
     "noImages": "No thumbnails found for this camera"
+  },
+  "multicam": {
+    "title": "MultiCam export",
+    "description": "Combine up to four cameras into a synchronized grid or a sequence. Split a shot and change its visible cameras to create automatic cuts. Missing recordings stay visible as gaps. Up to 60 minutes per export.",
+    "name": "Export name",
+    "saveDraft": "Save draft",
+    "restoreDraft": "Restore draft",
+    "downloadPlan": "Download edit plan",
+    "openPlan": "Open edit plan",
+    "saved": "Draft saved",
+    "invalidPlan": "Invalid edit plan",
+    "start": "Start",
+    "end": "End",
+    "split": "Split shot",
+    "remove": "Remove shot",
+    "quality": "Recording quality",
+    "resolution": "Resolution",
+    "audio": "Fixed audio source",
+    "silent": "Silent",
+    "offsets": "Camera clock correction",
+    "offsetDescription": "Positive values read this camera later by the specified seconds. Range: −30 to +30 seconds.",
+    "preview": "Validate and preview",
+    "previewSilent": "Preview without audio",
+    "noRecording": "No recording / tracking gap",
+    "playhead": "Export playhead",
+    "play": "Play preview",
+    "pause": "Pause",
+    "cutHere": "Cut here",
+    "export": "Export edited video",
+    "queued": "MultiCam export queued",
+    "cancel": "Cancel export",
+    "openExports": "Open Exports"
   }
 }

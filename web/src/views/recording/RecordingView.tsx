@@ -2,6 +2,7 @@ import ReviewCard from "@/components/card/ReviewCard";
 import ReviewFilterGroup from "@/components/filter/ReviewFilterGroup";
 import DebugReplayDialog from "@/components/overlay/DebugReplayDialog";
 import ExportDialog from "@/components/overlay/ExportDialog";
+import MultiCamExportDialog from "@/components/overlay/MultiCamExportDialog";
 import ActionsDropdown from "@/components/overlay/ActionsDropdown";
 import PreviewPlayer, {
   PreviewController,
@@ -847,6 +848,18 @@ export function RecordingView({
             </Button>
           </div>
           <div className="flex items-center justify-end gap-2">
+            <MultiCamExportDialog
+              cameras={multicamCameras}
+              currentTime={currentTime}
+              range={exportRange}
+              onOpen={() => {
+                setIsPlaybackPlaying(false);
+                mainControllerRef.current?.pause();
+                Object.values(multicamControllerRefs.current).forEach(
+                  (controller) => controller.pause(),
+                );
+              }}
+            />
             <MobileCameraDrawer
               allCameras={effectiveCameras}
               selected={mainCamera}
