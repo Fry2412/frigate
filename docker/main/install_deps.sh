@@ -7,6 +7,7 @@ apt-get -qq update
 apt-get -qq install --no-install-recommends -y \
     apt-transport-https \
     ca-certificates \
+    fonts-dejavu-core \
     gnupg \
     wget \
     lbzip2 \

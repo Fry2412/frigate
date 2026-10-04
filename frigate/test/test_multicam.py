@@ -1,5 +1,6 @@
 """Real media and safety regression tests for reproducible multicamera plans."""
 
+import array
 import json
 import os
 import shutil
@@ -9,6 +10,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from frigate.jobs.export import (
+    ExportJob,
+    ExportJobManager,
+    ExportQueueFullError,
+    reap_stale_exports,
+)
 from frigate.models import Export, ExportCase, Recordings
 from frigate.record.multicam import (
     ExportCancelled,
@@ -192,4 +199,135 @@ class TestMultiCamMedia(unittest.TestCase):
         renderer = MultiCamRenderer(self.config, self.job)
         with self.assertRaises(FileNotFoundError):
             renderer.pin_sources()
+        self.assertFalse(renderer.directory.exists())
+
+    def test_fixed_audio_keeps_silence_for_gap_then_uses_offscreen_camera(self):
+        path = os.path.join(self.root, "b.mp4")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=64x48:r=15",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=880:sample_rate=48000",
+                "-t",
+                "2",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
+                path,
+            ],
+            check=True,
+        )
+        Recordings.update(has_audio=True, audio_codec="aac", audio_rate=48000).where(
+            Recordings.camera == "b"
+        ).execute()
+        self.job.composite_plan["audio_camera"] = "b"
+        self.job.composite_plan["shots"][0]["cameras"] = ["a"]
+        renderer = MultiCamRenderer(self.config, self.job)
+        renderer.pin_sources()
+        renderer.run(lambda *_: None)
+        export = Export.get_by_id(self.job.id)
+        samples = array.array(
+            "h",
+            subprocess.check_output(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-i",
+                    export.video_path,
+                    "-vn",
+                    "-f",
+                    "s16le",
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "1",
+                    "pipe:1",
+                ]
+            ),
+        )
+        self.assertLess(max(abs(value) for value in samples[24000:48000]), 20)
+        self.assertGreater(max(abs(value) for value in samples[144000:168000]), 1000)
+
+    def test_short_cuts_do_not_accumulate_aac_padding_drift(self):
+        self.job.composite_plan["shots"] = [
+            {"start": 100 + i / 2, "end": 100 + (i + 1) / 2, "cameras": ["a"]}
+            for i in range(8)
+        ]
+        renderer = MultiCamRenderer(self.config, self.job)
+        renderer.pin_sources()
+        renderer.run(lambda *_: None)
+        export = Export.get_by_id(self.job.id)
+        info = json.loads(
+            subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_format",
+                    "-of",
+                    "json",
+                    export.video_path,
+                ]
+            )
+        )
+        self.assertAlmostEqual(float(info["format"]["duration"]), 4, delta=0.08)
+        self.assertEqual(
+            json.loads(info["format"]["tags"]["comment"])["shots"],
+            renderer.plan.model_dump()["shots"],
+        )
+
+    def test_queued_cancel_and_full_queue_release_recording_pins(self):
+        manager = ExportJobManager(
+            self.config,
+            1,
+            max_queued=1,
+            publisher=SimpleNamespace(publish=lambda *_: None),
+        )
+        job = ExportJob(
+            id=self.job.id,
+            camera="a",
+            name="Test",
+            composite_plan=self.job.composite_plan,
+        )
+        with patch.object(manager, "ensure_started"):
+            manager.enqueue(job)
+            second = ExportJob(
+                id="multicam_other",
+                camera="a",
+                name="Other",
+                composite_plan=self.job.composite_plan,
+            )
+            with self.assertRaises(ExportQueueFullError):
+                manager.enqueue(second)
+        self.assertFalse(
+            (manager.renderers[job.id].directory.parent / second.id).exists()
+        )
+        self.assertIsNone(Export.get_or_none(Export.id == second.id))
+        directory = manager.renderers[job.id].directory
+        self.assertTrue(manager.cancel_composite(job.id))
+        self.assertFalse(directory.exists())
+        self.assertEqual(job.status, "cancelled")
+        self.assertEqual(manager.queue.unfinished_tasks, 0)
+
+    def test_restart_never_publishes_a_partial_composite(self):
+        renderer = MultiCamRenderer(self.config, self.job)
+        renderer.pin_sources()
+        export = Export.get_by_id(self.job.id)
+        with open(export.video_path, "wb") as file:
+            file.write(b"partial")
+        with patch("frigate.const.EXPORT_DIR", self.root):
+            reap_stale_exports()
+        self.assertIsNone(Export.get_or_none(Export.id == self.job.id))
         self.assertFalse(renderer.directory.exists())

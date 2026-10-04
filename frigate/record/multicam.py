@@ -1,5 +1,7 @@
 """Versioned, wall-clock aligned multicamera export plans and CPU renderer."""
 
+import datetime
+import json
 import math
 import os
 import shutil
@@ -257,7 +259,7 @@ class MultiCamRenderer:
             "1",
         ]
 
-    def _concat(self, paths, dest, durations):
+    def _concat(self, paths, dest, durations, metadata=False):
         listing = self._path("txt")
         # Generated local path components are numeric; the volume prefix can
         # contain apostrophes, which the concat demuxer still needs escaped.
@@ -269,6 +271,19 @@ class MultiCamRenderer:
                 for path, duration in zip(paths, durations)
             )
         )
+        tags = []
+        if metadata:
+            tags = [
+                "-metadata",
+                "title=Frigate MultiCam",
+                "-metadata",
+                "comment=" + json.dumps(self.plan.model_dump(), separators=(",", ":")),
+                "-metadata",
+                "creation_time="
+                + datetime.datetime.fromtimestamp(
+                    self.plan.shots[0].start, datetime.UTC
+                ).isoformat(),
+            ]
         self._run(
             [
                 "-f",
@@ -283,6 +298,7 @@ class MultiCamRenderer:
                 str(sum(durations)),
                 "-movflags",
                 "+faststart",
+                *tags,
                 dest,
             ]
         )
@@ -307,9 +323,15 @@ class MultiCamRenderer:
                 args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]
             text = self._path("txt")
             text.write_text(
-                camera + (" — no recording" if source is None else ""), encoding="utf-8"
+                camera
+                + " · "
+                + datetime.datetime.fromtimestamp(start, datetime.UTC).isoformat(
+                    timespec="seconds"
+                )
+                + (" — no recording" if source is None else ""),
+                encoding="utf-8",
             )
-            filters = f"fps={self.plan.fps},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,tpad=stop_mode=clone:stop_duration={duration},trim=duration={duration},setpts=PTS-STARTPTS,drawtext=textfile='{text}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.6:x=8:y=8"
+            filters = f"fps={self.plan.fps},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,tpad=stop_mode=clone:stop_duration={duration},trim=duration={duration},setpts=PTS-STARTPTS,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:textfile='{text}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.6:x=8:y=8"
             self._run(
                 [
                     *args,
@@ -393,6 +415,13 @@ class MultiCamRenderer:
                     args += ["-filter_complex", graph, "-map", "[v]"]
                 else:
                     args += ["-map", "0:v:0"]
+                    if count == 0:
+                        label = self._path("txt")
+                        label.write_text("No confirmed observation", encoding="utf-8")
+                        args += [
+                            "-vf",
+                            f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:textfile='{label}':fontsize=24:fontcolor=white:x=(w-tw)/2:y=(h-th)/2",
+                        ]
                 args += [
                     "-map",
                     f"{audio_index}:a:0"
@@ -407,7 +436,10 @@ class MultiCamRenderer:
                 shots.append(dest)
             partial = self.directory / "result.mp4"
             self._concat(
-                shots, partial, [shot.end - shot.start for shot in self.plan.shots]
+                shots,
+                partial,
+                [shot.end - shot.start for shot in self.plan.shots],
+                metadata=True,
             )
             self._run(["-i", partial, "-frames:v", "1", "-an", export.thumb_path])
             if self.cancelled.is_set():
