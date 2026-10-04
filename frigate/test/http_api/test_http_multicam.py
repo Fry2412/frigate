@@ -3,13 +3,13 @@ from unittest.mock import patch
 
 from fastapi import Response
 from frigate.api.auth import get_allowed_cameras_for_filter
-from frigate.models import Export, ExportCase, Recordings
+from frigate.models import Event, Export, ExportCase, Recordings
 from frigate.test.http_api.base_http_test import AuthTestClient, BaseTestHttp
 
 
 class TestHttpMultiCam(BaseTestHttp):
     def setUp(self):
-        super().setUp([Export, ExportCase, Recordings])
+        super().setUp([Event, Export, ExportCase, Recordings])
         self.minimal_config["cameras"]["back_door"] = copy.deepcopy(
             self.minimal_config["cameras"]["front_door"]
         )
@@ -38,6 +38,93 @@ class TestHttpMultiCam(BaseTestHttp):
             in_progress=False,
             composite_plan=self.body["plan"],
         )
+
+    def insert_event(self, id, camera, start, end, label="person"):
+        Event.create(
+            id=id,
+            camera=camera,
+            label=label,
+            start_time=start,
+            end_time=end,
+            top_score=1,
+            score=1,
+            false_positive=False,
+            zones=[],
+            thumbnail="",
+            region=[],
+            box=[],
+            area=1,
+            plus_id="",
+            model_hash="",
+            detector_type="cpu",
+            model_type="yolo",
+            data={},
+        )
+
+    def test_journey_requires_confirmation_and_does_not_join_other_classes(self):
+        self.insert_event("seed", "front_door", 100, 120)
+        self.insert_event("next", "back_door", 110, 130)
+        self.insert_event("animal", "back_door", 110, 130, "dog")
+        self.insert_event("plate", "back_door", 110, 130, "car")
+        body = {
+            "cameras": ["front_door", "back_door"],
+            "after": 100,
+            "before": 150,
+            "seed_id": "seed",
+            "pre_capture": 0,
+            "post_capture": 0,
+        }
+        with AuthTestClient(self.app) as client:
+            response = client.post("/exports/multicam/journey", json=body)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["confirmation_required"])
+            self.assertEqual(
+                {event["id"] for event in response.json()["events"]}, {"seed", "next"}
+            )
+            self.assertEqual(
+                client.post("/exports/multicam/journey/plan", json=body).status_code,
+                400,
+            )
+            body["selected_event_ids"] = ["seed", "next"]
+            result = client.post("/exports/multicam/journey/plan", json=body)
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(
+                [shot["cameras"] for shot in result.json()["plan"]["shots"]],
+                [["front_door"], ["back_door"]],
+            )
+            self.assertEqual(
+                client.post(
+                    "/exports/multicam/journey/plan", json=body, headers=self.limited
+                ).status_code,
+                403,
+            )
+            body["selected_event_ids"].append("animal")
+            self.assertEqual(
+                client.post("/exports/multicam/journey/plan", json=body).status_code,
+                400,
+            )
+
+    def test_journey_corrects_camera_time_and_filters_topology(self):
+        self.insert_event("seed", "front_door", 100, 110)
+        self.insert_event("next", "back_door", 115, 130)
+        body = {
+            "cameras": ["front_door", "back_door"],
+            "after": 100,
+            "before": 150,
+            "seed_id": "seed",
+            "clock_offsets": {"back_door": 5},
+        }
+        with AuthTestClient(self.app) as client:
+            result = client.post("/exports/multicam/journey", json=body).json()
+            self.assertEqual(
+                next(event for event in result["events"] if event["id"] == "next")[
+                    "start_time"
+                ],
+                110,
+            )
+            body["transitions"] = {"front_door": []}
+            result = client.post("/exports/multicam/journey", json=body).json()
+            self.assertEqual([event["id"] for event in result["events"]], ["seed"])
 
     def test_rejects_inaccessible_camera_on_start_and_preview(self):
         with (

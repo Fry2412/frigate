@@ -61,7 +61,7 @@ from frigate.jobs.export import (
     list_active_export_jobs,
     start_export_job,
 )
-from frigate.models import Export, ExportCase, Previews, Recordings
+from frigate.models import Event, Export, ExportCase, Previews, Recordings
 from frigate.record.export import (
     DEFAULT_TIME_LAPSE_FFMPEG_ARGS,
     DEFAULT_TIME_LAPSE_FFMPEG_INPUT_ARGS,
@@ -70,6 +70,7 @@ from frigate.record.export import (
     PlaybackSourceEnum,
     validate_ffmpeg_args,
 )
+from frigate.record.journey import FOLLOW_LABELS, JourneyRequest, build_journey_plan
 from frigate.record.multicam import plan_cameras
 from frigate.util.recording_coverage import (
     build_spans,
@@ -84,6 +85,123 @@ from playhouse.shortcuts import model_to_dict
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=[Tags.export])
+
+
+def _normalize_journey_events(events, body):
+    result = []
+    for event in events:
+        offset = body.clock_offsets.get(event["camera"], 0)
+        event["start_time"] -= offset
+        if event["end_time"] is not None:
+            event["end_time"] -= offset
+        if event["start_time"] < body.before and (
+            event["end_time"] is None or event["end_time"] > body.after
+        ):
+            result.append(event)
+    return result
+
+
+def _journey_events(request, body, allowed):
+    if not set(body.cameras).issubset(allowed):
+        raise HTTPException(403, "Access to every source camera is required")
+    query = Event.select(
+        Event.id,
+        Event.camera,
+        Event.label,
+        Event.start_time,
+        Event.end_time,
+        Event.zones,
+    ).where(
+        (Event.camera << body.cameras)
+        & (Event.label << list(FOLLOW_LABELS))
+        & (Event.false_positive == False)
+        & (Event.start_time < body.before + 30)
+        & (Event.end_time.is_null(True) | (Event.end_time > body.after - 30))
+    )
+    return _normalize_journey_events(
+        list(query.order_by(Event.start_time.asc(), Event.id.asc()).limit(201).dicts()),
+        body,
+    )
+
+
+@router.post(
+    "/exports/multicam/journey", dependencies=[Depends(allow_any_authenticated())]
+)
+def journey_candidates(
+    request: Request,
+    body: JourneyRequest,
+    allowed: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    events = _journey_events(request, body, allowed)
+    if body.seed_id:
+        seed = next((event for event in events if event["id"] == body.seed_id), None)
+        if seed is None:
+            raise HTTPException(404, "Seed event not found in this time range")
+        events = [event for event in events if event["label"] == seed["label"]]
+        if body.transitions:
+            targets = {seed["camera"]}
+            for _ in body.cameras:
+                targets |= {
+                    target
+                    for camera in list(targets)
+                    for target in body.transitions.get(camera, [])
+                }
+            events = [event for event in events if event["camera"] in targets]
+        for event in events:
+            event["temporal_distance"] = max(
+                0,
+                event["start_time"] - (seed["end_time"] or body.before),
+                seed["start_time"] - (event["end_time"] or body.before),
+            )
+        events.sort(
+            key=lambda event: (
+                event["temporal_distance"],
+                event["start_time"],
+                event["id"],
+            )
+        )
+    return {
+        "events": events[:200],
+        "truncated": len(events) > 200,
+        "confirmation_required": True,
+    }
+
+
+@router.post(
+    "/exports/multicam/journey/plan", dependencies=[Depends(allow_any_authenticated())]
+)
+def confirmed_journey_plan(
+    request: Request,
+    body: JourneyRequest,
+    allowed: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    if not body.selected_event_ids:
+        raise HTTPException(400, "Confirm observations before creating a journey")
+    # Query selected IDs independently: a crowded search window must not
+    # silently drop confirmed events merely because it has a candidate cap.
+    if not set(body.cameras).issubset(allowed):
+        raise HTTPException(403, "Access to every source camera is required")
+    events = list(
+        Event.select(
+            Event.id, Event.camera, Event.label, Event.start_time, Event.end_time
+        )
+        .where(
+            (Event.id << body.selected_event_ids)
+            & (Event.camera << body.cameras)
+            & (Event.false_positive == False)
+            & (Event.start_time < body.before + 30)
+            & (Event.end_time.is_null(True) | (Event.end_time > body.after - 30))
+        )
+        .dicts()
+    )
+    events = _normalize_journey_events(events, body)
+    if {event["id"] for event in events} != set(body.selected_event_ids):
+        raise HTTPException(400, "A confirmed observation is unavailable")
+    try:
+        plan = build_journey_plan(events, body)
+    except ValueError as err:
+        raise HTTPException(400, str(err)) from err
+    return {"plan": plan.model_dump(), "identity_matching": "manually_confirmed"}
 
 
 def _check_multicam_plan(request, plan, allowed):

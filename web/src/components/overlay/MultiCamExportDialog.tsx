@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import { DetailStreamProvider } from "@/context/detail-stream-context";
 import { VideoResolutionType } from "@/types/live";
 import { CameraNameLabel } from "@/components/camera/FriendlyNameLabel";
 import { Link } from "react-router-dom";
+import MultiCamJourneyEditor from "./MultiCamJourneyEditor";
 
 function dateValue(time: number) {
   const date = new Date(time * 1000);
@@ -262,16 +264,13 @@ export default function MultiCamExportDialog({
           <span className="ml-2 hidden lg:inline">{t("multicam.title")}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent
-        className="max-h-[95dvh] max-w-5xl overflow-y-auto"
-        aria-describedby="multicam-description"
-      >
+      <DialogContent className="max-h-[95dvh] max-w-5xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("multicam.title")}</DialogTitle>
         </DialogHeader>
-        <p id="multicam-description" className="text-sm text-muted-foreground">
+        <DialogDescription className="text-sm text-muted-foreground">
           {t("multicam.description")}
-        </p>
+        </DialogDescription>
         {plan && (
           <>
             <Label htmlFor="multicam-name">{t("multicam.name")}</Label>
@@ -527,6 +526,12 @@ export default function MultiCamExportDialog({
                 ))}
               </details>
             </fieldset>
+            <MultiCamJourneyEditor
+              plan={plan}
+              cameras={selected}
+              onPlan={updatePlan}
+              disabled={busy || active}
+            />
             <Button disabled={busy || active} onClick={validate}>
               {t("multicam.preview")}
             </Button>

@@ -218,6 +218,24 @@
     "export": "Export edited video",
     "queued": "MultiCam export queued",
     "cancel": "Cancel export",
-    "openExports": "Open Exports"
+    "openExports": "Open Exports",
+    "journeyTitle": "Follow a person or animal",
+    "journeyDescription": "Search the selected cameras and time range. Choose a starting observation, then confirm which observations show the same target. Similar labels and close timestamps alone do not establish identity.",
+    "journeyMode": "View",
+    "follow": "Switch cameras",
+    "dynamicGrid": "Show active cameras together",
+    "minShot": "Minimum shot",
+    "padding": "Before / after",
+    "transitions": "Camera transitions (optional)",
+    "transitionDescription": "Limit candidate suggestions to cameras connected by these directional transitions.",
+    "findObservations": "Find persons and animals",
+    "tooManyEvents": "Too many observations. Narrow the time range to inspect all candidates.",
+    "confirmIdentity": "Only select observations where you recognize the same person or animal.",
+    "chooseSeed": "Choose the person or animal to follow.",
+    "selectTarget": "Follow this target",
+    "target": "Starting observation",
+    "sameTarget": "Same target — confirmed",
+    "buildJourney": "Create tracking edit",
+    "journeyCreated": "Tracking edit created. Review the cuts in the preview."
   }
 }

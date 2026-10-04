@@ -165,6 +165,24 @@
     "export": "Geschnittenes Video exportieren",
     "queued": "MultiCam-Export eingereiht",
     "cancel": "Export abbrechen",
-    "openExports": "Exporte öffnen"
+    "openExports": "Exporte öffnen",
+    "journeyTitle": "Person oder Tier verfolgen",
+    "journeyDescription": "Gewählte Kameras im eingestellten Zeitraum durchsuchen. Eine Startbeobachtung auswählen und bestätigen, welche Beobachtungen dasselbe Ziel zeigen. Gleiche Klassen und ähnliche Zeitstempel beweisen keine Identität.",
+    "journeyMode": "Ansicht",
+    "follow": "Kameras wechseln",
+    "dynamicGrid": "Aktive Kameras gemeinsam zeigen",
+    "minShot": "Mindestdauer",
+    "padding": "Vor- / Nachlauf",
+    "transitions": "Kameraübergänge (optional)",
+    "transitionDescription": "Vorschläge auf Kameras begrenzen, die über diese gerichteten Übergänge verbunden sind.",
+    "findObservations": "Personen und Tiere suchen",
+    "tooManyEvents": "Zu viele Beobachtungen. Zeitraum eingrenzen, um alle Kandidaten zu prüfen.",
+    "confirmIdentity": "Nur Beobachtungen auswählen, auf denen du dieselbe Person oder dasselbe Tier erkennst.",
+    "chooseSeed": "Person oder Tier auswählen, das verfolgt werden soll.",
+    "selectTarget": "Dieses Ziel verfolgen",
+    "target": "Startbeobachtung",
+    "sameTarget": "Dasselbe Ziel — bestätigt",
+    "buildJourney": "Verfolgungsschnitt erstellen",
+    "journeyCreated": "Verfolgungsschnitt erstellt. Schnitte in der Vorschau prüfen."
   }
 }
