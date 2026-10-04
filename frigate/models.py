@@ -103,6 +103,7 @@ class Export(Model):
     video_path = CharField(unique=True)
     thumb_path = CharField(unique=True)
     in_progress = BooleanField()
+    composite_plan = JSONField(null=True)
     export_case = ForeignKeyField(
         ExportCase,
         null=True,

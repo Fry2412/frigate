@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from frigate.record.export import (
     PlaybackSourceEnum,
     RecordingExporter,
 )
+from frigate.record.multicam import ExportCancelled, MultiCamRenderer, plan_cameras
 from frigate.types import JobStatusTypesEnum
 from peewee import DoesNotExist
 
@@ -61,6 +63,7 @@ class ExportJob(Job):
     cpu_fallback: bool = False
     chapters: ChaptersEnum | None = None
     stream: ExportStreamEnum = ExportStreamEnum.auto
+    composite_plan: dict | None = None
 
     current_step: str = "queued"
     progress_percent: float = 0.0
@@ -163,6 +166,8 @@ class ExportJobManager:
         self.lock = threading.Lock()
         self.workers: list[ExportQueueWorker] = []
         self.started = False
+        self.renderers: dict[str, MultiCamRenderer] = {}
+        self.composite_slots = threading.BoundedSemaphore(4)
         self.publisher = publisher if publisher is not None else JobStatePublisher()
         self._last_broadcast_monotonic: float = 0.0
         self._broadcast_throttle_lock = threading.Lock()
@@ -191,6 +196,7 @@ class ExportJobManager:
                 j
                 for j in self.jobs.values()
                 if j.status in (JobStatusTypesEnum.queued, JobStatusTypesEnum.running)
+                and j.composite_plan is None
             ]
 
         any_running = any(j.status == JobStatusTypesEnum.running for j in active)
@@ -259,19 +265,67 @@ class ExportJobManager:
         """
         self.ensure_started()
 
+        renderer = None
+        admitted = False
         try:
-            self.queue.put_nowait(job)
-        except Full as err:
-            raise ExportQueueFullError(
-                "Export queue is full; try again once current exports finish"
-            ) from err
-
-        with self.lock:
-            self.jobs[job.id] = job
+            if job.composite_plan:
+                admitted = self.composite_slots.acquire(blocking=False)
+                if not admitted:
+                    raise ExportQueueFullError(
+                        "At most four MultiCam exports may be queued or running"
+                    )
+                renderer = MultiCamRenderer(self.config, job)
+                renderer.pin_sources()
+            with self.lock:
+                self.jobs[job.id] = job
+                if renderer:
+                    self.renderers[job.id] = renderer
+                self.queue.put_nowait(job)
+        except Exception as err:
+            with self.lock:
+                self.jobs.pop(job.id, None)
+                self.renderers.pop(job.id, None)
+            if renderer:
+                renderer.cleanup()
+                Export.delete().where(Export.id == job.id).execute()
+            if admitted:
+                self.composite_slots.release()
+            if isinstance(err, Full):
+                raise ExportQueueFullError(
+                    "Export queue is full; try again later"
+                ) from err
+            raise
 
         self._broadcast_all_jobs(force=True)
 
         return job.id
+
+    def cancel_composite(self, job_id: str) -> bool:
+        removed = False
+        with self.lock:
+            renderer = self.renderers.get(job_id)
+            if renderer is None:
+                return False
+            renderer.cancel()
+            with self.queue.mutex:
+                for job in list(self.queue.queue):
+                    if job.id == job_id:
+                        self.queue.queue.remove(job)
+                        self.queue.unfinished_tasks -= 1
+                        if self.queue.unfinished_tasks == 0:
+                            self.queue.all_tasks_done.notify_all()
+                        self.queue.not_full.notify_all()
+                        job.status = JobStatusTypesEnum.cancelled
+                        job.end_time = time.time()
+                        self.renderers.pop(job_id)
+                        removed = True
+                        break
+        if removed:
+            renderer.cleanup()
+            Export.delete().where(Export.id == job_id).execute()
+            self.composite_slots.release()
+            self._schedule_job_cleanup(job_id)
+        return True
 
     def get_job(self, job_id: str) -> Optional[ExportJob]:
         """Get a job by ID."""
@@ -336,6 +390,31 @@ class ExportJobManager:
         job.status = JobStatusTypesEnum.running
         job.start_time = time.time()
         self._broadcast_all_jobs(force=True)
+
+        if job.composite_plan:
+            try:
+                renderer = self.renderers[job.id]
+                # Revalidate cameras when execution starts after queueing.
+                if not plan_cameras(job.composite_plan, job.camera).issubset(
+                    self.config.cameras
+                ):
+                    renderer.cancel()
+                renderer.run(self._make_progress_callback(job))
+                job.status = JobStatusTypesEnum.success
+                job.results = {"export_id": job.id}
+            except ExportCancelled:
+                job.status = JobStatusTypesEnum.cancelled
+            except Exception as err:
+                logger.exception("MultiCam export %s failed", job.id)
+                job.status = JobStatusTypesEnum.failed
+                job.error_message = str(err)
+            finally:
+                with self.lock:
+                    self.renderers.pop(job.id, None)
+                self.composite_slots.release()
+                job.end_time = time.time()
+                self._schedule_job_cleanup(job.id)
+            return
 
         exporter = RecordingExporter(
             self.config,
@@ -414,6 +493,13 @@ def reap_stale_exports() -> None:
     this in a try/except. A failure on a single row will not stop the rest
     of the sweep, and a failure in the top-level query will log and return.
     """
+    # Private per-job hard links and partial media are never recovered as a
+    # finished export. Called only at startup, before workers are started.
+    from frigate.const import EXPORT_DIR
+
+    workspace = Path(EXPORT_DIR) / ".multicam"
+    if workspace.is_dir():
+        shutil.rmtree(workspace)
     try:
         stale_exports = list(Export.select().where(Export.in_progress == True))  # noqa: E712
     except Exception:
@@ -439,7 +525,7 @@ def reap_stale_exports() -> None:
                 except OSError:
                     has_usable_file = False
 
-            if has_usable_file:
+            if has_usable_file and export.composite_plan is None:
                 # Unassign from any case on recovery: the user should
                 # re-triage a recovered export rather than have it silently
                 # reappear inside a case they curated.

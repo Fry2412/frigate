@@ -15,6 +15,7 @@ class ExportModel(BaseModel):
     in_progress: bool = Field(
         description="Whether the export is currently being processed"
     )
+    composite_plan: Optional[dict[str, Any]] = None
     export_case_id: Optional[str] = Field(
         default=None, description="ID of the export case this export belongs to"
     )

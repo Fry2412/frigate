@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import psutil
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from frigate.api.auth import (
     allow_any_authenticated,
@@ -35,6 +35,7 @@ from frigate.api.defs.request.export_recordings_body import (
     ExportRecordingsCustomBody,
 )
 from frigate.api.defs.request.export_rename_body import ExportRenameBody
+from frigate.api.defs.request.multicam_body import MultiCamExportBody
 from frigate.api.defs.response.export_case_response import (
     ExportCaseModel,
     ExportCasesResponse,
@@ -56,6 +57,7 @@ from frigate.jobs.export import (
     available_export_queue_slots,
     cancel_queued_export_jobs_for_case,
     get_export_job,
+    get_export_job_manager,
     list_active_export_jobs,
     start_export_job,
 )
@@ -68,6 +70,12 @@ from frigate.record.export import (
     PlaybackSourceEnum,
     validate_ffmpeg_args,
 )
+from frigate.record.multicam import plan_cameras
+from frigate.util.recording_coverage import (
+    build_spans,
+    null_audio_glitches,
+    resolve_coverage,
+)
 from frigate.util.time import is_current_hour
 from pathvalidate import sanitize_filepath
 from peewee import DoesNotExist
@@ -76,6 +84,107 @@ from playhouse.shortcuts import model_to_dict
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=[Tags.export])
+
+
+def _check_multicam_plan(request, plan, allowed):
+    if not plan.cameras.issubset(allowed):
+        raise HTTPException(403, "Access to every source camera is required")
+    if not plan.cameras.issubset(request.app.frigate_config.cameras):
+        raise HTTPException(404, "Source camera not found")
+
+
+@router.post(
+    "/exports/multicam/preview", dependencies=[Depends(allow_any_authenticated())]
+)
+def preview_multicam(
+    request: Request,
+    body: MultiCamExportBody,
+    allowed: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    _check_multicam_plan(request, body.plan, set(allowed))
+    windows = []
+    output_start = 0.0
+    for shot in body.plan.shots:
+        coverage = {}
+        for camera in shot.cameras:
+            offset = body.plan.clock_offsets.get(camera, 0)
+            intervals = null_audio_glitches(
+                resolve_coverage(camera, shot.start + offset, shot.end + offset)
+            )
+            spans = build_spans(
+                intervals, None if body.plan.stream == "auto" else body.plan.stream
+            )
+            coverage[camera] = [
+                {
+                    "start": start - offset,
+                    "end": end - offset,
+                    "stream": "main" if main else "sub",
+                }
+                for _row, start, end, main in spans
+            ]
+        windows.append(
+            {
+                "output_start": output_start,
+                "start": shot.start,
+                "end": shot.end,
+                "cameras": shot.cameras,
+                "coverage": coverage,
+            }
+        )
+        output_start += shot.end - shot.start
+    return {
+        "plan": body.plan.model_dump(),
+        "duration": output_start,
+        "windows": windows,
+    }
+
+
+@router.post(
+    "/exports/multicam",
+    response_model=StartExportResponse,
+    dependencies=[Depends(allow_any_authenticated())],
+)
+def start_multicam(
+    request: Request,
+    body: MultiCamExportBody,
+    allowed: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    _check_multicam_plan(request, body.plan, set(allowed))
+    cameras = sorted(body.plan.cameras)
+    job = ExportJob(
+        id=_generate_export_id("multicam"),
+        camera=cameras[0],
+        name=body.name,
+        request_start_time=body.plan.shots[0].start,
+        request_end_time=body.plan.shots[-1].end,
+        composite_plan=body.plan.model_dump(),
+    )
+    try:
+        start_export_job(request.app.frigate_config, job)
+    except ExportQueueFullError as err:
+        raise HTTPException(503, str(err)) from err
+    except (ValueError, OSError) as err:
+        raise HTTPException(400, "Cannot prepare MultiCam export: " + str(err)) from err
+    return {
+        "success": True,
+        "message": "MultiCam export queued",
+        "export_id": job.id,
+        "status": "queued",
+    }
+
+
+@router.post(
+    "/exports/multicam/{export_id}/cancel",
+    dependencies=[Depends(allow_any_authenticated())],
+)
+async def cancel_multicam(export_id: str, request: Request):
+    manager = get_export_job_manager(request.app.frigate_config)
+    job = manager.get_job(export_id)
+    if not job or not job.composite_plan:
+        raise HTTPException(404, "Active MultiCam export not found")
+    for camera in plan_cameras(job.composite_plan, job.camera):
+        await require_camera_access(camera, request=request)
+    return {"success": manager.cancel_composite(export_id)}
 
 
 def _generate_id(length: int = 12) -> str:
@@ -335,7 +444,15 @@ def get_exports(
         query = query.where(Export.date <= end_date)
 
     exports = query.order_by(Export.date.desc()).dicts().iterator()
-    return JSONResponse(content=[e for e in exports])
+    return JSONResponse(
+        content=[
+            e
+            for e in exports
+            if plan_cameras(e.get("composite_plan"), e["camera"]).issubset(
+                allowed_cameras
+            )
+        ]
+    )
 
 
 @router.get(
@@ -459,7 +576,11 @@ def get_active_export_jobs(
 ):
     jobs = list_active_export_jobs(request.app.frigate_config)
     return JSONResponse(
-        content=[job.to_dict() for job in jobs if job.camera in allowed_cameras]
+        content=[
+            job.to_dict()
+            for job in jobs
+            if plan_cameras(job.composite_plan, job.camera).issubset(allowed_cameras)
+        ]
     )
 
 
@@ -478,7 +599,8 @@ async def get_export_job_status(export_id: str, request: Request):
             status_code=404,
         )
 
-    await require_camera_access(job.camera, request=request)
+    for camera in plan_cameras(job.composite_plan, job.camera):
+        await require_camera_access(camera, request=request)
 
     return JSONResponse(content=job.to_dict())
 
@@ -772,7 +894,8 @@ def export_recording(
 async def export_rename(event_id: str, body: ExportRenameBody, request: Request):
     try:
         export: Export = Export.get(Export.id == event_id)
-        await require_camera_access(export.camera, request=request)
+        for camera in plan_cameras(export.composite_plan, export.camera):
+            await require_camera_access(camera, request=request)
     except DoesNotExist:
         return JSONResponse(
             content=(
@@ -923,7 +1046,8 @@ def export_recording_custom(
 async def get_export(export_id: str, request: Request):
     try:
         export = Export.get(Export.id == export_id)
-        await require_camera_access(export.camera, request=request)
+        for camera in plan_cameras(export.composite_plan, export.camera):
+            await require_camera_access(camera, request=request)
         return JSONResponse(content=model_to_dict(export))
     except DoesNotExist:
         return JSONResponse(

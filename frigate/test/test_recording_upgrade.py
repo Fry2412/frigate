@@ -24,9 +24,11 @@ class TestRecordingUpgrade(unittest.TestCase):
                     "INSERT INTO recordings (id, camera, path, start_time, end_time, duration, motion, objects, segment_size, dBFS) "
                     "VALUES ('legacy', 'front', '/recordings/legacy.mp4', 100, 110, 10, 3, 1, 1, 0)"
                 )
+                db.execute_sql("INSERT INTO export (id, camera, name, date, video_path, thumb_path, in_progress) VALUES ('legacy_export', 'front', 'Original', 100, '/exports/original.mp4', '/clips/export/original.webp', 0)")
                 for name in (
                     "036_add_recordings_stream_metadata.py",
                     "037_add_recordings_stream_index.py",
+                    "038_add_multicam_export_plan.py",
                 ):
                     (migrations / name).write_bytes((source / name).read_bytes())
                 Router(db, migrate_dir=str(migrations)).run()
@@ -42,5 +44,6 @@ class TestRecordingUpgrade(unittest.TestCase):
                 }
                 self.assertIn("recordings_camera_stream_type_start_time", indexes)
                 self.assertNotIn("recordings_camera_stream_type", indexes)
+                self.assertEqual(db.execute_sql("SELECT name, video_path, composite_plan FROM export WHERE id='legacy_export'").fetchone(), ("Original", "/exports/original.mp4", None))
             finally:
                 db.close()

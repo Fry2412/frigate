@@ -12,16 +12,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from joserfc import jwt
-from joserfc.jwk import KeySet
-from peewee import DoesNotExist
-from slowapi import Limiter
-
 from frigate.api.defs.request.app_body import (
     AppPostLoginBody,
     AppPostUsersBody,
@@ -31,7 +26,11 @@ from frigate.api.defs.request.app_body import (
 from frigate.api.defs.tags import Tags
 from frigate.config import AuthConfig, NetworkingConfig, ProxyConfig
 from frigate.const import CONFIG_DIR, JWT_SECRET_ENV_VAR, PASSWORD_HASH_ALGORITHM
-from frigate.models import User
+from frigate.models import Export, User
+from joserfc import jwt
+from joserfc.jwk import KeySet
+from peewee import DoesNotExist
+from slowapi import Limiter
 
 logger = logging.getLogger(__name__)
 
@@ -391,9 +390,7 @@ def oidc_callback(
             raise ValueError("OIDC ID token audience is invalid")
         if str(oidc_config.client_id) not in audiences:
             raise ValueError("OIDC ID token audience mismatch")
-        if len(audiences) > 1 and token.claims.get("azp") != str(
-            oidc_config.client_id
-        ):
+        if len(audiences) > 1 and token.claims.get("azp") != str(oidc_config.client_id):
             raise ValueError("OIDC ID token authorized party mismatch")
         if not secrets.compare_digest(
             str(token.claims.get("nonce", "")), str(flow.claims.get("nonce", ""))
@@ -745,7 +742,12 @@ def _safe_return_path(value: Optional[str]) -> str:
     if not value:
         return "/"
     parsed = urlparse(value)
-    if parsed.scheme or parsed.netloc or not value.startswith("/") or value.startswith("//"):
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or not value.startswith("/")
+        or value.startswith("//")
+    ):
         return "/"
     return value
 
@@ -982,6 +984,39 @@ def _proxy_auth_response(
     },
 )
 def auth(request: Request):
+    response = _authenticate_request(request)
+    if response.status_code != 202:
+        return response
+    path = unquote(urlparse(request.headers.get("x-original-url", "")).path)
+    ingress = request.headers.get("x-ingress-path", "").rstrip("/")
+    if ingress and path.startswith(ingress + "/"):
+        path = path[len(ingress) :]
+    if path.startswith("/exports/") or path.startswith("/clips/export/"):
+        # nginx sends this header itself. Never expose private staging files
+        # or authorize a composite on its first camera alone.
+        filename = path.rsplit("/", 1)[-1]
+        if "/.multicam/" in path or not filename:
+            return Response(status_code=403)
+        export = Export.get_or_none(
+            (Export.video_path.endswith("/" + filename))
+            | (Export.thumb_path.endswith("/" + filename))
+        )
+        if export is None:
+            return Response(status_code=403)
+        from frigate.record.multicam import plan_cameras
+
+        config = request.app.frigate_config
+        allowed = User.get_allowed_cameras(
+            response.headers.get("remote-role", ""),
+            config.auth.roles,
+            set(config.cameras),
+        )
+        if not plan_cameras(export.composite_plan, export.camera).issubset(allowed):
+            return Response(status_code=403)
+    return response
+
+
+def _authenticate_request(request: Request):
     auth_config: AuthConfig = request.app.frigate_config.auth
     proxy_config: ProxyConfig = request.app.frigate_config.proxy
     networking_config: NetworkingConfig = request.app.frigate_config.networking
