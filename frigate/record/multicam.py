@@ -158,7 +158,7 @@ class MultiCamRenderer:
                                 start,
                                 end,
                                 start + offset - row.start_time,
-                                row.has_audio is True,
+                                row.has_audio,
                             )
                         )
                         cursor = end
@@ -241,6 +241,27 @@ class MultiCamRenderer:
         self.completed += 1
         self.progress("encoding", min(99, 100 * self.completed / self.total))
 
+    def _legacy_audio(self, source):
+        """Probe old rows whose migration deliberately left audio unknown."""
+        result = subprocess.run(
+            [
+                str(Path(self.config.ffmpeg.ffmpeg_path).with_name("ffprobe")),
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                str(source),
+            ],
+            capture_output=True,
+            timeout=10,
+            check=True,
+        )
+        return bool(result.stdout.strip())
+
     def _encode_args(self):
         return [
             "-c:v",
@@ -318,6 +339,8 @@ class MultiCamRenderer:
                     f"color=c=black:s={width}x{height}:r={self.plan.fps}",
                 ]
             )
+            if source and has_audio is None and camera == self.plan.audio_camera:
+                has_audio = self._legacy_audio(source)
             keep_audio = source and has_audio and camera == self.plan.audio_camera
             if not keep_audio:
                 args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]

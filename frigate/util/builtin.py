@@ -11,20 +11,20 @@ import re
 import shlex
 import struct
 import urllib.parse
+import uuid
 from collections.abc import Mapping
 from multiprocessing.managers import ValueProxy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
-from ruamel.yaml import YAML
-
 from frigate.const import (
     REGEX_HTTP_CAMERA_USER_PASS,
     REGEX_RTSP_CAMERA_USER_PASS,
     STREAM_TYPE_MAIN,
     STREAM_TYPE_SUB,
 )
+from ruamel.yaml import YAML
 
 if TYPE_CHECKING:
     from frigate.config import CameraConfig
@@ -360,15 +360,26 @@ def find_by_key(dictionary, target_key):
 
 
 def clear_and_unlink(file: Path, missing_ok: bool = True) -> None:
-    """clear file then unlink to avoid space retained by file descriptors."""
-    if not missing_ok and not file.exists():
-        raise FileNotFoundError()
+    """Release unleased bytes while preserving files pinned by an export.
 
-    # empty contents of file before unlinking https://github.com/blakeblackshear/frigate/issues/4769
-    with open(file, "w"):
-        pass
-
-    file.unlink(missing_ok=missing_ok)
+    Rename first so an export cannot create a new hard link between the
+    link-count check and truncation. A concurrently disappearing source makes
+    preparation fail safely; a link already created retains the original bytes.
+    """
+    removed = file.with_name(f".frigate_delete_{uuid.uuid4().hex}.tmp")
+    try:
+        file.rename(removed)
+    except FileNotFoundError:
+        if not missing_ok:
+            raise
+        return
+    try:
+        if removed.stat().st_nlink == 1:
+            # Release space even when another process still holds an fd.
+            with removed.open("w"):
+                pass
+    finally:
+        removed.unlink(missing_ok=True)
 
 
 def empty_and_close_queue(q):

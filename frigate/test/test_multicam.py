@@ -23,6 +23,7 @@ from frigate.record.multicam import (
     MultiCamRenderer,
     plan_cameras,
 )
+from frigate.util.builtin import clear_and_unlink
 from playhouse.sqlite_ext import SqliteExtDatabase
 from pydantic import ValidationError
 
@@ -155,8 +156,10 @@ class TestMultiCamMedia(unittest.TestCase):
     def test_grid_gap_and_switch_preserve_time_after_retention_unlinks_source(self):
         renderer = MultiCamRenderer(self.config, self.job)
         renderer.pin_sources()
-        os.unlink(os.path.join(self.root, "a.mp4"))
-        os.unlink(os.path.join(self.root, "b.mp4"))
+        from pathlib import Path
+
+        clear_and_unlink(Path(self.root) / "a.mp4")
+        clear_and_unlink(Path(self.root) / "b.mp4")
         progress = []
         renderer.run(lambda step, percent: progress.append(percent))
         export = Export.get_by_id(self.job.id)
@@ -228,7 +231,7 @@ class TestMultiCamMedia(unittest.TestCase):
             ],
             check=True,
         )
-        Recordings.update(has_audio=True, audio_codec="aac", audio_rate=48000).where(
+        Recordings.update(has_audio=None, audio_codec=None, audio_rate=None).where(
             Recordings.camera == "b"
         ).execute()
         self.job.composite_plan["audio_camera"] = "b"
