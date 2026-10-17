@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import unquote, urlencode, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -994,7 +994,21 @@ def auth(request: Request):
     response = _authenticate_request(request)
     if response.status_code != 202:
         return response
-    path = unquote(urlparse(request.headers.get("x-original-url", "")).path)
+
+    original_url = request.headers.get("x-original-url", "")
+    if request.headers.get("x-go2rtc-stream-proxy") == "1":
+        sources = parse_qs(urlparse(original_url).query, keep_blank_values=True).get(
+            "src", []
+        )
+        for source in sources:
+            if not _is_existing_go2rtc_stream(request, source):
+                logger.warning(
+                    "Rejected proxied go2rtc request for unknown stream source '%s'",
+                    source,
+                )
+                return Response(status_code=403)
+
+    path = unquote(urlparse(original_url).path)
     if path.startswith("/exports/") or path.startswith("/clips/export/"):
         # nginx sends this header itself. Never expose private staging files
         # or authorize a composite on its first camera alone.
@@ -1546,6 +1560,38 @@ def _get_stream_owner_cameras(request: Request, stream_name: str) -> set[str]:
             owner_cameras.add(camera_name)
 
     return owner_cameras
+
+
+def _is_existing_go2rtc_stream(request: Request, stream_name: str) -> bool:
+    """Return whether go2rtc already knows this stream name.
+
+    go2rtc treats an unknown src as an ad-hoc source definition. Proxied live
+    endpoints must never accept those definitions directly from authenticated
+    clients.
+    """
+    if _get_stream_owner_cameras(request, stream_name):
+        return True
+
+    config_streams = getattr(request.app.frigate_config.go2rtc, "streams", None) or {}
+    if stream_name in config_streams:
+        return True
+
+    try:
+        response = requests.get(
+            "http://127.0.0.1:1984/api/streams",
+            timeout=2,
+        )
+    except requests.RequestException:
+        logger.warning("Unable to fetch streams from go2rtc to authorize request")
+        return False
+
+    if not response.ok:
+        return False
+
+    try:
+        return stream_name in response.json()
+    except ValueError:
+        return False
 
 
 async def require_go2rtc_stream_access(
