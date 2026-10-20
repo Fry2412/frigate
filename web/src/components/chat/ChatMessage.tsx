@@ -14,6 +14,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { baseUrl } from "@/api/baseUrl";
+
+// Markdown may contain model-generated URLs. Never load off-origin images automatically.
+function isSameOrigin(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    return new URL(url, baseUrl).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
 
 type MessageBubbleProps = {
   role: "user" | "assistant";
@@ -158,6 +169,23 @@ export function MessageBubble({
                   {...props}
                 />
               ),
+              img: ({ node: _n, src, alt, ...props }) =>
+                typeof src === "string" && isSameOrigin(src) ? (
+                  <img src={src} alt={alt} {...props} />
+                ) : (
+                  <>{alt}</>
+                ),
+              a: ({ node: _n, href, ...props }) =>
+                isSameOrigin(href) ? (
+                  <a href={href} {...props} />
+                ) : (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    {...props}
+                  />
+                ),
             }}
           >
             {content}
