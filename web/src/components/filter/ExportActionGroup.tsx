@@ -3,8 +3,9 @@ import axios from "axios";
 import { Button, buttonVariants } from "../ui/button";
 import { isDesktop } from "react-device-detect";
 import { HiTrash } from "react-icons/hi";
-import { LuFolderPlus, LuFolderX } from "react-icons/lu";
-import { Export, ExportCase } from "@/types/export";
+import { LuDownload, LuFolderPlus, LuFolderX } from "react-icons/lu";
+import { Export, ExportCase, MAX_BATCH_EXPORT_ITEMS } from "@/types/export";
+import { baseUrl } from "@/api/baseUrl";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,14 @@ export default function ExportActionGroup({
 }: ExportActionGroupProps) {
   const { t } = useTranslation(["views/exports", "common"]);
   const isAdmin = useIsAdmin();
+  const archiveUrl = new URL("api/exports/archive", baseUrl);
+  selectedExports.forEach((item) =>
+    archiveUrl.searchParams.append("ids", item.id),
+  );
+  const canDownload =
+    selectedExports.length > 0 &&
+    selectedExports.length <= MAX_BATCH_EXPORT_ITEMS &&
+    selectedExports.every((item) => !item.in_progress);
 
   const onClearSelected = useCallback(() => {
     setSelectedExports([]);
@@ -340,6 +349,18 @@ export default function ExportActionGroup({
             {t("button.unselect", { ns: "common" })}
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canDownload}
+          aria-label={t("multicam.downloadZip", { ns: "components/dialog" })}
+          onClick={() => window.location.assign(archiveUrl.toString())}
+        >
+          <LuDownload className="size-4" />
+          <span className="ml-2 hidden md:inline">
+            {t("multicam.downloadZip", { ns: "components/dialog" })}
+          </span>
+        </Button>
         {isAdmin && (
           <div className="flex items-center gap-1 md:gap-2">
             {/* Add to Case / Move to Case */}

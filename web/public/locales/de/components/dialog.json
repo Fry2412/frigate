@@ -137,7 +137,7 @@
   },
   "multicam": {
     "title": "MultiCam-Export",
-    "description": "Bis zu vier Kameras als synchrones Grid oder als Abfolge exportieren. Abschnitte teilen und ihre sichtbaren Kameras ändern, um automatische Schnitte zu erstellen. Fehlende Aufnahmen bleiben als Lücken sichtbar. Maximal 60 Minuten pro Export.",
+    "description": "Kameras und Zeitraum auswählen. Die Einzelvideos gemeinsam als ZIP-Datei herunterladen.",
     "name": "Exportname",
     "saveDraft": "Entwurf speichern",
     "restoreDraft": "Entwurf laden",
@@ -183,6 +183,25 @@
     "target": "Startbeobachtung",
     "sameTarget": "Dasselbe Ziel — bestätigt",
     "buildJourney": "Verfolgungsschnitt erstellen",
-    "journeyCreated": "Verfolgungsschnitt erstellt. Schnitte in der Vorschau prüfen."
+    "journeyCreated": "Verfolgungsschnitt erstellt. Schnitte in der Vorschau prüfen.",
+    "zipDescription": "Kameras und Zeitraum auswählen. Die Einzelvideos gemeinsam als ZIP-Datei herunterladen.",
+    "cameras": "Kameras",
+    "selectedCount_one": "{{count}} ausgewählt",
+    "selectedCount_other": "{{count}} ausgewählt",
+    "selectCameras": "Mindestens eine Kamera auswählen.",
+    "invalidRange": "Das Ende muss nach dem Anfang liegen.",
+    "zipHint": "Eine MP4 pro Kamera mit den verfügbaren Aufnahmen und dem jeweiligen Originalton. Aufnahmelücken werden ausgelassen. Die Videos werden auch unter Exporte gespeichert.",
+    "preparing": "Videos werden vorbereitet…",
+    "ready": "Alle Videos sind bereit",
+    "partial": "Einige Videos konnten nicht exportiert werden",
+    "failed": "Export fehlgeschlagen",
+    "videoReady": "Bereit",
+    "statusError": "Status konnte nicht geladen werden. Wird automatisch erneut versucht. Die Videos sind auch unter Exporte zu finden.",
+    "newExport": "Neuer Export",
+    "createZip": "ZIP-Export vorbereiten",
+    "downloadZip": "ZIP herunterladen",
+    "downloadPartial_one": "ZIP herunterladen ({{count}} Video)",
+    "downloadPartial_other": "ZIP herunterladen ({{count}} Videos)",
+    "close": "Schließen"
   }
 }

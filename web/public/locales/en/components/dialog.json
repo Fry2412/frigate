@@ -190,7 +190,7 @@
   },
   "multicam": {
     "title": "MultiCam export",
-    "description": "Combine up to four cameras into a synchronized grid or a sequence. Split a shot and change its visible cameras to create automatic cuts. Missing recordings stay visible as gaps. Up to 60 minutes per export.",
+    "description": "Choose cameras and a time range. Download their individual videos together in one ZIP file.",
     "name": "Export name",
     "saveDraft": "Save draft",
     "restoreDraft": "Restore draft",
@@ -236,6 +236,25 @@
     "target": "Starting observation",
     "sameTarget": "Same target — confirmed",
     "buildJourney": "Create tracking edit",
-    "journeyCreated": "Tracking edit created. Review the cuts in the preview."
+    "journeyCreated": "Tracking edit created. Review the cuts in the preview.",
+    "zipDescription": "Choose cameras and a time range. Download their individual videos together in one ZIP file.",
+    "cameras": "Cameras",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "selectCameras": "Select at least one camera.",
+    "invalidRange": "The end must be after the start.",
+    "zipHint": "One MP4 per camera, using the available recordings with their original audio. Recording gaps are omitted. Videos are also saved under Exports.",
+    "preparing": "Preparing videos…",
+    "ready": "All videos are ready",
+    "partial": "Some videos could not be exported",
+    "failed": "Export failed",
+    "videoReady": "Ready",
+    "statusError": "Could not refresh the status. Retrying automatically. You can also check Exports.",
+    "newExport": "New export",
+    "createZip": "Prepare ZIP export",
+    "downloadZip": "Download ZIP",
+    "downloadPartial_one": "Download ZIP ({{count}} video)",
+    "downloadPartial_other": "Download ZIP ({{count}} videos)",
+    "close": "Close"
   }
 }

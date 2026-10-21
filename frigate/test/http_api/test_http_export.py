@@ -1431,3 +1431,70 @@ class TestHttpExport(BaseTestHttp):
             )
 
         assert response.status_code == 403
+
+    def test_archive_contains_complete_videos_and_unique_names(self):
+        import io
+        import zipfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            for index, camera in enumerate(["front_door", "backyard"]):
+                folder = Path(directory) / camera
+                folder.mkdir()
+                video = folder / "clip.mp4"
+                video.write_bytes(f"video-{index}".encode())
+                Export.create(
+                    id=f"zip-{index}", camera=camera, name=camera, date=100,
+                    video_path=str(video), thumb_path="", in_progress=False,
+                )
+            with patch("frigate.api.export.EXPORT_DIR", directory):
+                with AuthTestClient(self.app) as client:
+                    response = client.get(
+                        "/exports/archive", params=[("ids", "zip-0"), ("ids", "zip-1"), ("ids", "zip-0")]
+                    )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+        assert "attachment" in response.headers["content-disposition"]
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert set(archive.namelist()) == {"clip.mp4", "clip_1.mp4"}
+            assert {archive.read(name) for name in archive.namelist()} == {b"video-0", b"video-1"}
+            assert archive.testzip() is None
+
+    def test_archive_rejects_missing_and_in_progress_exports(self):
+        Export.create(
+            id="zip-busy", camera="front_door", name="busy", date=100,
+            video_path="/missing.mp4", thumb_path="", in_progress=True,
+        )
+        with AuthTestClient(self.app) as client:
+            assert client.get("/exports/archive", params={"ids": "unknown"}).status_code == 404
+            assert client.get("/exports/archive", params={"ids": "zip-busy"}).status_code == 409
+            assert client.get("/exports/archive").status_code == 422
+            assert client.get("/exports/archive", params={"ids": ["x"] * 51}).status_code == 422
+
+    def test_archive_requires_every_source_camera(self):
+        from frigate.api.auth import get_allowed_cameras_for_filter
+
+        Export.create(
+            id="zip-private", camera="front_door", name="private", date=100,
+            video_path="/missing.mp4", thumb_path="", in_progress=False,
+            composite_plan={"shots": [{"start": 100, "end": 200, "cameras": ["front_door", "backyard"]}]},
+        )
+        self.app.dependency_overrides[get_allowed_cameras_for_filter] = lambda: ["front_door"]
+        with AuthTestClient(self.app) as client:
+            response = client.get("/exports/archive", params={"ids": "zip-private"})
+        assert response.status_code == 403
+
+    def test_archive_rejects_files_outside_export_directory(self):
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            video = Path(directory) / "private.mp4"
+            video.write_bytes(b"private")
+            Export.create(
+                id="zip-outside", camera="front_door", name="outside", date=100,
+                video_path=str(video), thumb_path="", in_progress=False,
+            )
+            with patch("frigate.api.export.EXPORT_DIR", str(Path(directory) / "exports")):
+                with AuthTestClient(self.app) as client:
+                    response = client.get("/exports/archive", params={"ids": "zip-outside"})
+        assert response.status_code == 404

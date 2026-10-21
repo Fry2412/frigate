@@ -4,16 +4,19 @@ import datetime
 import logging
 import random
 import string
+import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import List, Optional
 
 import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pathvalidate import sanitize_filepath
 from peewee import DoesNotExist
 from playhouse.shortcuts import model_to_dict
+from starlette.background import BackgroundTask
 
 from frigate.api.auth import (
     allow_any_authenticated,
@@ -1151,6 +1154,66 @@ def export_recording_custom(
             }
         ),
         status_code=202,
+    )
+
+
+@router.get(
+    "/exports/archive",
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Download completed exports as a ZIP archive",
+)
+def download_export_archive(
+    ids: List[str] = Query(min_length=1, max_length=50),
+    allowed_cameras: List[str] = Depends(get_allowed_cameras_for_filter),
+):
+    export_ids = list(dict.fromkeys(ids))
+    exports = list(Export.select().where(Export.id << export_ids))
+    if len(exports) != len(export_ids):
+        raise HTTPException(404, "One or more exports not found")
+    allowed = set(allowed_cameras)
+    for export in exports:
+        if not plan_cameras(export.composite_plan, export.camera).issubset(allowed):
+            raise HTTPException(403, "Access to every source camera is required")
+    for export in exports:
+        if export.in_progress:
+            raise HTTPException(409, "One or more exports are still in progress")
+        path = Path(export.video_path).resolve()
+        if not path.is_relative_to(Path(EXPORT_DIR).resolve()) or not path.is_file():
+            raise HTTPException(404, "One or more export files not found")
+
+    # MP4s are already compressed. Spill to disk rather than retaining large
+    # archives in memory, and release the temporary file after the response.
+    archive = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
+    try:
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as bundle:
+            used: set[str] = set()
+            for export in exports:
+                bundle.write(export.video_path, _unique_archive_name(export, used))
+        size = archive.tell()
+        archive.seek(0)
+    except FileNotFoundError:
+        archive.close()
+        raise HTTPException(404, "One or more export files not found") from None
+    except Exception:
+        archive.close()
+        raise
+
+    def chunks():
+        try:
+            while chunk := archive.read(1024 * 1024):
+                yield chunk
+        finally:
+            archive.close()
+
+    return StreamingResponse(
+        chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="multicam-export.zip"',
+            "Content-Length": str(size),
+            "Cache-Control": "no-store",
+        },
+        background=BackgroundTask(archive.close),
     )
 
 
