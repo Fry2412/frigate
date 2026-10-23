@@ -1,5 +1,9 @@
 # Rechercheprotokoll
 
+Dieses Protokoll hält den ursprünglichen Recherchestand vor der Umsetzung
+fest. Die inzwischen implementierten POC-Funktionen und durchgeführten
+Trainings-/Containertests stehen in der [aktuellen Anleitung](README.md).
+
 Stand und Abruf: **23.10.2026**. Primärquellen: offizielle Dokumentationen,
 Originalquellcode und Dokumentation der jeweiligen Projektmaintainer.
 Beobachtete Versionen sind eine Momentaufnahme. Vor Implementierung erneut

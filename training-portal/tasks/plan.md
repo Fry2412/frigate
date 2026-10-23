@@ -2,7 +2,9 @@
 
 Stand: **23.10.2026**. Status: Diskussionsgrundlage mit Recherche und Roadmap.
 Belegte Fakten stehen im [Rechercheprotokoll](../RESEARCH.md); nachfolgende
-Architektur und Abnahmeziele sind Vorschläge. Keine Anwendung implementiert.
+Architektur und Abnahmeziele sind Vorschläge für den Gesamtausbau. Der erste
+POC ist inzwischen umgesetzt; sein engerer Umfang und seine Startanleitung
+stehen in [README](../README.md) und [POC-Vertrag](../POC-CONTRACT.md).
 
 ## 1. Ziel und erste Grenze
 

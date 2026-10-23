@@ -1,7 +1,9 @@
 # Vorläufige Aufgaben
 
-Stand 23.10.2026. Noch nicht zur Implementierung freigegeben. Diese Liste
-konkretisiert den Planungsauftrag; nach Besprechung der Modulgrenzen jeweils
+Stand 23.10.2026. Ursprüngliche Aufgabenliste für den Gesamtausbau. Ein erster
+POC mit engerem Umfang ist inzwischen implementiert (siehe `../README.md`).
+Die folgenden Coral-/Produkt-Abnahmen sind dadurch nicht automatisch erfüllt.
+Diese Liste konkretisiert den ursprünglichen Planungsauftrag; jeweils
 die nächste Modul-Spec ausarbeiten. Dateipfade bezeichnen geplante Bereiche,
 keine bereits vorhandene Implementierung. M = ungefähr 3–5 Dateien je Slice;
 größere Integrationsaufgaben beim Spezifizieren weiter zerlegen.
