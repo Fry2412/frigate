@@ -20,7 +20,9 @@ Runner POST `/api/v1/runner/datasets`:
 `{runner_id,datasets:[descriptor,...]}` (runner auth); replaces that runner's
 inventory. GET `/api/v1/datasets` (admin) returns descriptor list plus
 `runner_ids`. Claim body adds `datasets:[{id,manifest_sha256}]`; optional for
-legacy clients. Manager claims only jobs compatible with submitted capabilities.
+legacy clients. Claim also advertises `job_kinds` (all four kinds for new
+runners); omitted means only `custom`, preventing legacy runners consuming new
+job types. Manager claims only jobs compatible with submitted capabilities.
 Preparation/custom jobs need no cached dataset. Refinement without replay needs
 no public dataset. Same runner may still hold only one lease.
 
