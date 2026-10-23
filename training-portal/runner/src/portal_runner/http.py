@@ -18,6 +18,12 @@ class PortalError(RuntimeError):
         self.status = status
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward runner credentials to a redirect destination.
+        return None
+
+
 @dataclass
 class PortalClient:
     base_url: str
@@ -44,7 +50,8 @@ class PortalClient:
             self.base_url + path, data=body, headers=request_headers, method=method
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            opener = urllib.request.build_opener(_NoRedirect())
+            with opener.open(request, timeout=self.timeout) as response:
                 status, payload, response_headers = (
                     response.status,
                     response.read(),

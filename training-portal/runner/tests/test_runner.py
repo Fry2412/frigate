@@ -281,7 +281,10 @@ def test_http_client_sends_bearer_token(monkeypatch):
         captured["timeout"] = timeout
         return Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    class Opener:
+        open = staticmethod(fake_urlopen)
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *_handlers: Opener())
     status, payload, _ = PortalClient(
         "https://portal.example", "private-token"
     ).request(
