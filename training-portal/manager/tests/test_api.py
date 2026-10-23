@@ -1,11 +1,61 @@
 import base64
 import io
+import sqlite3
 import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from portal_manager.app import create_app
+
+
+def test_annotation_and_review_reset_become_visible_together(portal, monkeypatch):
+    client, root = portal
+    image_id = add_image(client)
+    annotate(client, image_id)
+    review(client, image_id)
+    original_connect = sqlite3.connect
+    observed = []
+
+    class ObservedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            result = super().execute(sql, parameters)
+            if sql.startswith("INSERT INTO annotations"):
+                with original_connect(root / "manager.sqlite3") as reader:
+                    observed.append(
+                        reader.execute(
+                            "SELECT count(*) FROM annotations WHERE image_id=?",
+                            (image_id,),
+                        ).fetchone()[0]
+                    )
+            return result
+
+    def connect(*args, **kwargs):
+        return original_connect(*args, factory=ObservedConnection, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    assert annotate(client, image_id, label="person").status_code == 200
+    assert observed == [1], "An unreviewed annotation must not be visible to a snapshot"
+
+
+def test_job_rejects_class_only_present_in_validation(portal):
+    client, _ = portal
+    for camera, label in [("cam-a", "cat"), ("cam-b", "person")]:
+        image_id = add_image(client, camera)
+        annotate(client, image_id, label=label)
+        review(client, image_id)
+    response = client.post(
+        "/api/v1/jobs",
+        headers={"Authorization": "Bearer admin-secret"},
+        json={
+            "classes": ["cat", "person"],
+            "epochs": 1,
+            "batch_size": 2,
+            "image_size": 320,
+        },
+    )
+    assert response.status_code == 422
+    assert "training split" in response.json()["detail"]
 
 
 def test_exif_orientation_is_normalized_before_review(portal):

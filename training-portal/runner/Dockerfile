@@ -25,6 +25,7 @@ COPY src ./src
 # Reinstall after copying package metadata/source. The build deliberately does
 # not fetch weights; mount a trusted local checkpoint or set YOLO_WEIGHTS="".
 RUN python -m pip install --no-cache-dir --no-build-isolation --no-deps . \
+    && python /opt/yolov9/train_dual.py --help > /dev/null \
     && mkdir -p /var/lib/portal-runner /weights
 
 VOLUME ["/var/lib/portal-runner", "/weights"]

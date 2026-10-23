@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
+MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 LEASE_SECONDS = 120
 IMAGE_FORMATS = {
     "JPEG": ("image/jpeg", ".jpg"),
@@ -324,6 +325,7 @@ def create_app(data_dir: str | Path, admin_token: str, runner_token: str) -> Fas
     def add_annotation(image_id: str, body: AnnotationInput):
         annotation_id = str(uuid.uuid4())
         with db_connection() as db:
+            db.execute("BEGIN IMMEDIATE")
             if (
                 db.execute("SELECT 1 FROM images WHERE id=?", (image_id,)).fetchone()
                 is None
@@ -357,6 +359,7 @@ def create_app(data_dir: str | Path, admin_token: str, runner_token: str) -> Fas
     )
     def delete_annotation(image_id: str, annotation_id: str):
         with db_connection() as db:
+            db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
                 "DELETE FROM annotations WHERE id=? AND image_id=?",
                 (annotation_id, image_id),
@@ -392,9 +395,9 @@ def create_app(data_dir: str | Path, admin_token: str, runner_token: str) -> Fas
                     image["path"] and Path(image["path"]).stat().st_size
                     for image in images
                 )
-                > 2 * 1024 * 1024 * 1024
+                > MAX_SNAPSHOT_BYTES
             ):
-                raise HTTPException(413, "Reviewed image snapshot exceeds 2 GiB")
+                raise HTTPException(413, "Reviewed image snapshot exceeds 256 MiB")
             if not images:
                 raise HTTPException(422, "At least two reviewed images are required")
             all_annotations: dict[str, list[sqlite3.Row]] = {}
@@ -430,6 +433,21 @@ def create_app(data_dir: str | Path, admin_token: str, runner_token: str) -> Fas
                     "At least two independent images with positive targets are required",
                 )
             train_ids, val_ids = _split_images(positive_images)
+            training_labels = {
+                annotation["label"]
+                for image in positive_images
+                if image["id"] in train_ids
+                for annotation in all_annotations[image["id"]]
+                if not annotation["negative"]
+            }
+            missing_training = set(body.classes) - training_labels
+            if missing_training:
+                raise HTTPException(
+                    422,
+                    "No positive examples in training split for: "
+                    + ", ".join(sorted(missing_training))
+                    + ". Add reviewed examples across camera groups.",
+                )
             split_by_camera = len({image["camera"] for image in positive_images}) > 1
             validation_cameras = {
                 image["camera"] for image in positive_images if image["id"] in val_ids
@@ -588,10 +606,8 @@ def create_app(data_dir: str | Path, admin_token: str, runner_token: str) -> Fas
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for image in manifest["images"]:
                 split = image["split"]
-                source = (
-                    Path(row["snapshot_dir"])
-                    / "images"
-                    / f"{image['id']}{Path(next(p for p in (Path(row['snapshot_dir']) / 'images').glob(image['id'] + '.*')).name).suffix}"
+                source = next(
+                    (Path(row["snapshot_dir"]) / "images").glob(f"{image['id']}.*")
                 )
                 archive.write(source, f"images/{split}/{source.name}")
                 target_lines = []

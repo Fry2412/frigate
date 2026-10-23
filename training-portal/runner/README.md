@@ -56,6 +56,11 @@ and metrics must exist, and the artifact upload must complete under the active
 lease before success is reported. This POC produces ordinary YOLOv9 weights;
 it does not export a Coral model.
 
+Failed or interrupted attempt directories are retained below RUNNER_WORK_DIR
+with their training logs for diagnosis. Successful attempts are cleaned only
+after the manager accepted completion. Operators must monitor work volume
+usage and remove obsolete failed attempts; automatic retention is not in POC.
+
 ## CPU tests
 
 Install the small test dependencies and run `pytest` from this directory. Tests

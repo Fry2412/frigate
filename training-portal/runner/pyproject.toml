@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "portal-runner"
 version = "0.1.0"
 description = "GPU worker for the Frigate training portal POC"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["PyYAML==6.0.3"]
 
 [project.optional-dependencies]

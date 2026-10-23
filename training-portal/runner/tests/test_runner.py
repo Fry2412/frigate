@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
 from portal_runner.cli import main
 from portal_runner.config import RunnerConfig
 from portal_runner.http import PortalClient, PortalError
@@ -13,6 +14,18 @@ from portal_runner.worker import Job, Runner
 
 JOB_ID = "39ea4ef7-a31d-4ebc-9ef8-b6b0e94af611"
 LEASE_TOKEN = "fenced-lease-token-at-least-twenty"
+
+
+def test_dataset_yaml_cannot_supply_executable_download_hook(tmp_path):
+    for directory in ("images/train", "images/val", "labels/train", "labels/val"):
+        (tmp_path / directory).mkdir(parents=True)
+    (tmp_path / "data.yaml").write_text(
+        "names: [person]\ndownload: print('must not execute')\ncustom: unwanted\n",
+        encoding="utf-8",
+    )
+    rewritten = Runner._rewrite_data_yaml(tmp_path, ["person"])
+    data = yaml.safe_load(rewritten.read_text(encoding="utf-8"))
+    assert set(data) == {"names", "path", "train", "val"}
 
 
 class FakeProcess:
@@ -176,6 +189,9 @@ def test_success_requires_and_packages_real_outputs(portal, monkeypatch):
     class SuccessfulProcess(FakeProcess):
         def __init__(self, argv):
             super().__init__()
+            assert argv[argv.index("--img-size") + 2].startswith("--"), (
+                "The pinned train_dual.py accepts exactly one image-size value"
+            )
             project = Path(argv[argv.index("--project") + 1])
             weights = project / "train" / "weights"
             weights.mkdir(parents=True)

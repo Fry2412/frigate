@@ -222,6 +222,7 @@ class Runner:
             heartbeat.stop()
             if heartbeat.lost.is_set() and status == "succeeded":
                 status, error = "failed", "lease lost during job"
+            completed = False
             try:
                 self.client.json(
                     "POST",
@@ -233,9 +234,19 @@ class Runner:
                     },
                     expected=(200, 204),
                 )
+                completed = True
             except PortalError:
                 LOG.exception("could not report completion for job %s", job.id)
-            shutil.rmtree(work, ignore_errors=True)
+            if status == "succeeded" and completed:
+                if work.resolve().parent != self.config.work_dir.resolve():
+                    raise RuntimeError(
+                        "Refusing to clean a directory outside runner work"
+                    )
+                shutil.rmtree(work, ignore_errors=True)
+            else:
+                LOG.error(
+                    "Retained failed/interrupted job files for diagnosis: %s", work
+                )
 
     def _download_dataset(self, job: Job, destination: Path) -> None:
         self.client.download_file(
@@ -268,9 +279,14 @@ class Runner:
         for relative in ("images/train", "images/val", "labels/train", "labels/val"):
             if not (dataset_root / relative).is_dir():
                 raise ValueError(f"dataset archive is missing {relative}")
-        data["path"] = str(dataset_root.resolve())
-        data["train"] = "images/train"
-        data["val"] = "images/val"
+        # YOLOv9 interprets extra fields such as `download` as executable code.
+        # Only runner-generated paths and validated class names may reach it.
+        data = {
+            "names": expected_classes,
+            "path": str(dataset_root.resolve()),
+            "train": "images/train",
+            "val": "images/val",
+        }
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         return path
 

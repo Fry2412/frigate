@@ -25,7 +25,7 @@ no external service dependency.
 
 Uploads are decoded and validated as JPEG, PNG or WebP, limited to 10 MiB and
 40 megapixels. Runner result ZIPs are limited to 512 MiB; a training snapshot is
-limited to 5,000 reviewed images and 2 GiB of source image data. Snapshot
+limited to 5,000 reviewed images and 256 MiB of source image data. Snapshot
 manifests, image copies, class order and train/validation assignment are fixed
 when a job is created. Split assignment hashes camera names when multiple
 cameras have positive targets and falls back to image IDs for a single camera.
