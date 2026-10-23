@@ -1,0 +1,22 @@
+services:
+  manager:
+    image: ${PORTAL_MANAGER_IMAGE:-training-portal-manager:poc}
+    build: ./manager
+    restart: unless-stopped
+    ports:
+      - '${PORTAL_BIND_ADDRESS:-127.0.0.1}:${PORTAL_PORT:-8080}:8080'
+    environment:
+      PORTAL_API_TOKEN: ${PORTAL_API_TOKEN:?Set a strong admin token in .env}
+      PORTAL_RUNNER_TOKEN: ${PORTAL_RUNNER_TOKEN:?Set a different strong runner token in .env}
+      PORTAL_DATA_DIR: /data
+    volumes:
+      - portal-data:/data
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=3)']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 20s
+
+volumes:
+  portal-data:

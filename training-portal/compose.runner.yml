@@ -1,0 +1,21 @@
+services:
+  runner:
+    image: ${PORTAL_RUNNER_IMAGE:-training-portal-runner:poc}
+    build: ./runner
+    restart: unless-stopped
+    init: true
+    gpus: all
+    shm_size: '2gb'
+    environment:
+      PORTAL_URL: ${PORTAL_URL:?Set the reachable manager URL}
+      PORTAL_RUNNER_TOKEN: ${PORTAL_RUNNER_TOKEN:?Set the manager runner token}
+      RUNNER_ID: ${RUNNER_ID:-rtx-runner-1}
+      RUNNER_WORK_DIR: /var/lib/portal-runner
+      YOLO_WEIGHTS: ${YOLO_WEIGHTS-/weights/yolov9-s.pt}
+    volumes:
+      - runner-work:/var/lib/portal-runner
+      - ./weights:/weights:ro
+    stop_grace_period: 45s
+
+volumes:
+  runner-work:
