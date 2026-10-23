@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frigate Training Portal</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header><div><p class="eyebrow">FRIGATE · MANUAL REVIEW</p><h1>Training portal</h1></div><span id="connection" class="pill">Disconnected</span></header>
+  <main>
+    <section class="panel auth"><div><h2>Connect</h2><p>Use the admin API token. It stays in this page’s memory.</p></div>
+      <label>Admin token<input id="token" type="password" autocomplete="off"></label><button id="connect">Connect</button>
+    </section>
+    <section class="panel">
+      <div class="section-heading"><div><p class="eyebrow">INGEST</p><h2>Add images</h2><p>JPEG, PNG or WebP · up to 10 MiB each</p></div></div>
+      <form id="upload-form"><label>Camera<input id="camera" required maxlength="200" placeholder="front_door"></label><label class="file-label">Image files<input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label><button>Upload images</button></form>
+    </section>
+    <section class="panel">
+      <div class="section-heading"><div><p class="eyebrow">ANNOTATE</p><h2>Image review</h2><p>Drag on the image to draw a box. Mark reviewed after checking its annotations.</p></div><button id="refresh">Refresh</button></div>
+      <div id="images" class="image-grid"><p class="muted">Connect to load images.</p></div>
+    </section>
+    <section class="panel">
+      <div class="section-heading"><div><p class="eyebrow">TRAINING DATA</p><h2>Create a frozen dataset job</h2><p>Only reviewed images and positive targets enter training labels.</p></div></div>
+      <form id="job-form" class="job-form"><label>Classes<input id="classes" required placeholder="person, car"></label><label>Epochs<input id="epochs" type="number" min="1" max="300" value="1"></label><label>Batch size<input id="batch" type="number" min="1" max="64" value="2"></label><label>Image size<input id="image-size" type="number" min="64" max="1280" value="320"></label><button>Create training job</button></form>
+      <div id="jobs" class="jobs"></div>
+    </section>
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
