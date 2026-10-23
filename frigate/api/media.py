@@ -438,7 +438,24 @@ async def submit_recording_snapshot_to_plus(
             )
 
         nd = cv2.imdecode(np.frombuffer(image_data, dtype=np.int8), cv2.IMREAD_COLOR)
-        request.app.frigate_config.plus_api.upload_image(nd, camera_name)
+        config = request.app.frigate_config
+        submission_client = config.image_submission_client
+        if not submission_client.is_active():
+            return JSONResponse(
+                content={
+                    "success": False,
+                    "message": "Image submissions are not enabled",
+                },
+                status_code=400,
+            )
+        try:
+            submission_client.upload_image(nd, camera_name)
+        except Exception as ex:
+            logger.error("Unable to submit recording snapshot: %s", ex)
+            return JSONResponse(
+                content={"success": False, "message": "Unable to submit image"},
+                status_code=400,
+            )
 
         return JSONResponse(
             content={

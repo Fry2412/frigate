@@ -10,6 +10,29 @@ class TestHttpApp(BaseTestHttp):
         super().setUp([Event, Recordings, ReviewSegment])
         self.app = super().create_app()
 
+    def test_config_redacts_model_trainer_key_and_reports_submission_provider(self):
+        self.minimal_config["model_trainer"] = {
+            "enabled": True,
+            "url": "http://trainer",
+            "api_key": "secret-token",
+        }
+        self.minimal_config["environment_vars"] = {
+            "FRIGATE_MODEL_TRAINER_API_KEY": "secret-token"
+        }
+        self.minimal_config["image_submission_api"] = "model_trainer"
+        app = super().create_app()
+
+        with AuthTestClient(app) as client:
+            response = client.get("/config")
+
+        config = response.json()
+        assert response.status_code == 200
+        assert config["model_trainer"]["enabled"] is True
+        assert "api_key" not in config["model_trainer"]
+        assert "FRIGATE_MODEL_TRAINER_API_KEY" not in config["environment_vars"]
+        assert "secret-token" not in response.text
+        assert config["plus"] == {"enabled": True, "provider": "model_trainer"}
+
     ####################################################################################################################
     ###################################  GET /stats Endpoint   #########################################################
     ####################################################################################################################

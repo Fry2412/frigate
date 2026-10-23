@@ -21,6 +21,7 @@ from typing_extensions import Self
 from frigate.const import REGEX_JSON
 from frigate.detectors import DetectorConfig, ModelConfig
 from frigate.detectors.detector_config import BaseDetectorConfig
+from frigate.model_trainer import ModelTrainerApi
 from frigate.plus import PlusApi
 from frigate.util.builtin import (
     deep_merge,
@@ -72,6 +73,7 @@ from .classification import (
 from .database import DatabaseConfig
 from .env import EnvVars
 from .logger import LoggerConfig
+from .model_trainer import ImageSubmissionApi, ModelTrainerConfig
 from .mqtt import MqttConfig
 from .network import NetworkingConfig
 from .profile import ProfileDefinitionConfig
@@ -467,12 +469,21 @@ class FrigateConfig(FrigateBaseModel):
         title="Safe mode",
         description="When enabled, start Frigate in safe mode with reduced features for troubleshooting.",
     )
-
     # Fields that install global state should be defined first, so that their validators run first.
     environment_vars: EnvVars = Field(
         default_factory=dict,
         title="Environment variables",
         description="Key/value pairs of environment variables to set for the Frigate process in Home Assistant OS. Non-HAOS users must use Docker environment variable configuration instead.",
+    )
+    model_trainer: ModelTrainerConfig = Field(
+        default_factory=ModelTrainerConfig,
+        title="Model trainer",
+        description="Optional image submission destination for a model training portal.",
+    )
+    image_submission_api: ImageSubmissionApi = Field(
+        default="plus",
+        title="Image submission API",
+        description="Select the destination used by image submission endpoints.",
     )
     logger: LoggerConfig = Field(
         default_factory=LoggerConfig,
@@ -656,10 +667,16 @@ class FrigateConfig(FrigateBaseModel):
     )
 
     _plus_api: PlusApi
+    _model_trainer_api: Optional[ModelTrainerApi] = None
+    _image_submission_api: Any
 
     @property
     def plus_api(self) -> PlusApi:
         return self._plus_api
+
+    @property
+    def image_submission_client(self) -> Any:
+        return self._image_submission_api
 
     @model_validator(mode="after")
     def post_validation(self, info: ValidationInfo) -> Self:
@@ -671,6 +688,17 @@ class FrigateConfig(FrigateBaseModel):
         # Ensure self._plus_api is set, if no explicit value is provided.
         if self._plus_api is None:
             self._plus_api = PlusApi()
+
+        self._model_trainer_api = ModelTrainerApi(
+            self.model_trainer.url,
+            self.model_trainer.api_key,
+            enabled=self.model_trainer.enabled,
+        )
+        self._image_submission_api = (
+            self._model_trainer_api
+            if self.image_submission_api == "model_trainer"
+            else self._plus_api
+        )
 
         # set notifications state
         self.notifications.enabled_in_config = self.notifications.enabled

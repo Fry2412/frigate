@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+import numpy as np
 from playhouse.shortcuts import model_to_dict
 
 from frigate.api.auth import get_allowed_cameras_for_filter, get_current_user
@@ -461,4 +462,69 @@ class TestHttpApp(BaseTestHttp):
         assert (
             'frigate_camera_events_total{camera="porch",label="Mock"} 2.0' in event.text
         )
-        assert 'frigate_camera_events_total{camera="porch",label="inside"} 2.0'
+        assert (
+            'frigate_camera_events_total{camera="porch",label="inside"} 2.0'
+            in event.text
+        )
+
+    def test_model_trainer_false_positive_submits_only_negative_annotation(self):
+        event_id = "trainer-false-positive"
+        event_data = {
+            "box": [0.1, 0.2, 0.3, 0.4],
+            "region": [0.0, 0.0, 0.8, 0.9],
+            "score": 0.9,
+            "top_score": 0.9,
+        }
+        self.insert_mock_event(event_id, data=event_data)
+        self.app.frigate_config.image_submission_api = "model_trainer"
+        trainer = Mock()
+        trainer.is_active.return_value = True
+        trainer.upload_image.return_value = f"portal:{event_id}"
+        self.app.frigate_config._image_submission_api = trainer
+
+        with (
+            patch(
+                "frigate.api.event.load_event_snapshot_image",
+                return_value=(np.zeros((8, 8, 3), dtype=np.uint8), True),
+            ),
+            AuthTestClient(self.app) as client,
+        ):
+            response = client.put(f"/events/{event_id}/false_positive")
+
+        assert response.status_code == 200
+        trainer.upload_image.assert_called_once()
+        trainer.add_annotation.assert_called_once_with(
+            f"portal:{event_id}",
+            event_data["box"],
+            "Mock",
+            negative=True,
+        )
+        saved_event = Event.get(Event.id == event_id)
+        assert saved_event.false_positive is True
+        assert saved_event.plus_id == f"portal:{event_id}"
+
+    def test_portal_false_positive_cannot_be_submitted_to_plus(self):
+        event_id = "trainer-existing-image"
+        self.insert_mock_event(
+            event_id,
+            data={
+                "box": [0.1, 0.2, 0.3, 0.4],
+                "region": [0.0, 0.0, 0.8, 0.9],
+                "score": 0.9,
+                "top_score": 0.9,
+            },
+        )
+        event = Event.get(Event.id == event_id)
+        event.plus_id = f"portal:{event_id}"
+        event.save()
+        self.app.frigate_config.image_submission_api = "plus"
+        plus_client = Mock()
+        plus_client.is_active.return_value = True
+        self.app.frigate_config._image_submission_api = plus_client
+
+        with AuthTestClient(self.app) as client:
+            response = client.put(f"/events/{event_id}/false_positive")
+
+        assert response.status_code == 400
+        assert "different image destination" in response.json()["message"]
+        plus_client.add_false_positive.assert_not_called()

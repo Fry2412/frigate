@@ -59,6 +59,7 @@ from frigate.comms.event_metadata_updater import EventMetadataTypeEnum
 from frigate.config.classification import ObjectClassificationType
 from frigate.const import CLIPS_DIR, TRIGGER_DIR
 from frigate.embeddings import EmbeddingsContext
+from frigate.model_trainer import validate_submission_destination
 from frigate.models import Event, ReviewSegment, Timeline, Trigger
 from frigate.track.object_processing import TrackedObject
 from frigate.util.file import get_event_thumbnail_bytes, load_event_snapshot_image
@@ -1033,8 +1034,15 @@ def set_retain(event_id: str):
     """,
 )
 async def send_to_plus(request: Request, event_id: str, body: SubmitPlusBody = None):
-    if not request.app.frigate_config.plus_api.is_active():
-        message = "PLUS_API_KEY environment variable is not set"
+    config = request.app.frigate_config
+    submission_api = config.image_submission_api
+    submission_client = config.image_submission_client
+    if not submission_client.is_active():
+        message = (
+            "Model trainer submissions are not enabled"
+            if submission_api == "model_trainer"
+            else "PLUS_API_KEY environment variable is not set"
+        )
         logger.error(message)
         return JSONResponse(
             content=(
@@ -1075,7 +1083,11 @@ async def send_to_plus(request: Request, event_id: str, body: SubmitPlusBody = N
         )
 
     if event.plus_id:
-        message = "Already submitted to plus"
+        try:
+            validate_submission_destination(submission_api, event.plus_id)
+            message = "Already submitted to plus"
+        except ValueError as ex:
+            message = str(ex)
         logger.error(message)
         return JSONResponse(
             content=({"success": False, "message": message}), status_code=400
@@ -1106,7 +1118,7 @@ async def send_to_plus(request: Request, event_id: str, body: SubmitPlusBody = N
 
     try:
         plus_id = await asyncio.to_thread(
-            request.app.frigate_config.plus_api.upload_image, image, event.camera
+            submission_client.upload_image, image, event.camera
         )
     except Exception as ex:
         logger.exception(ex)
@@ -1124,7 +1136,7 @@ async def send_to_plus(request: Request, event_id: str, body: SubmitPlusBody = N
 
         try:
             await asyncio.to_thread(
-                request.app.frigate_config.plus_api.add_annotation,
+                submission_client.add_annotation,
                 event.plus_id,
                 box,
                 event.label,
@@ -1158,8 +1170,15 @@ async def send_to_plus(request: Request, event_id: str, body: SubmitPlusBody = N
     but is specifically for marking an event as a false positive.""",
 )
 async def false_positive(request: Request, event_id: str):
-    if not request.app.frigate_config.plus_api.is_active():
-        message = "PLUS_API_KEY environment variable is not set"
+    config = request.app.frigate_config
+    submission_api = config.image_submission_api
+    submission_client = config.image_submission_client
+    if not submission_client.is_active():
+        message = (
+            "Model trainer submissions are not enabled"
+            if submission_api == "model_trainer"
+            else "PLUS_API_KEY environment variable is not set"
+        )
         logger.error(message)
         return JSONResponse(
             content=(
@@ -1196,7 +1215,18 @@ async def false_positive(request: Request, event_id: str):
             content=({"success": False, "message": message}), status_code=400
         )
 
+    if event.plus_id:
+        try:
+            validate_submission_destination(submission_api, event.plus_id)
+        except ValueError as ex:
+            message = str(ex)
+            return JSONResponse(
+                content=({"success": False, "message": message}), status_code=400
+            )
+
     if not event.plus_id:
+        # The false-positive annotation is submitted below; do not attach a
+        # positive annotation as part of the initial image upload.
         plus_response = await send_to_plus(request, event_id)
         if plus_response.status_code != 200:
             return plus_response
@@ -1214,17 +1244,26 @@ async def false_positive(request: Request, event_id: str):
     )
 
     try:
-        await asyncio.to_thread(
-            request.app.frigate_config.plus_api.add_false_positive,
-            event.plus_id,
-            region,
-            box,
-            score,
-            event.label,
-            event.model_hash,
-            event.model_type,
-            event.detector_type,
-        )
+        if submission_api == "model_trainer":
+            await asyncio.to_thread(
+                submission_client.add_annotation,
+                event.plus_id,
+                box,
+                event.label,
+                negative=True,
+            )
+        else:
+            await asyncio.to_thread(
+                submission_client.add_false_positive,
+                event.plus_id,
+                region,
+                box,
+                score,
+                event.label,
+                event.model_hash,
+                event.model_type,
+                event.detector_type,
+            )
     except ValueError:
         message = "Error uploading false positive, unsupported label provided."
         logger.error(message)

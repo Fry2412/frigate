@@ -165,6 +165,10 @@ def config(request: Request):
     # remove the proxy secret
     config["proxy"].pop("auth_secret", None)
 
+    # Trainer credentials must never be returned by the config endpoint.
+    config.get("model_trainer", {}).pop("api_key", None)
+    config.get("environment_vars", {}).pop("FRIGATE_MODEL_TRAINER_API_KEY", None)
+
     # remove the OIDC client secret
     config.get("auth", {}).get("oidc", {}).pop("client_secret", None)
 
@@ -243,13 +247,16 @@ def config(request: Request):
 
         config["go2rtc"]["streams"][stream_name] = cleaned
 
-    config["plus"] = {"enabled": request.app.frigate_config.plus_api.is_active()}
+    config["plus"] = {
+        "enabled": request.app.frigate_config.image_submission_client.is_active(),
+        "provider": request.app.frigate_config.image_submission_api,
+    }
     config["model"]["colormap"] = config_obj.model.colormap
     config["model"]["all_attributes"] = config_obj.model.all_attributes
     config["model"]["non_logo_attributes"] = config_obj.model.non_logo_attributes
 
     # Add model plus data if plus is enabled
-    if config["plus"]["enabled"]:
+    if request.app.frigate_config.plus_api.is_active():
         model_path = config.get("model", {}).get("path")
         if model_path:
             model_json_path = FilePath(model_path).with_suffix(".json")
