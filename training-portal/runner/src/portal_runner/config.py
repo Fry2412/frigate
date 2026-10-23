@@ -20,6 +20,7 @@ class RunnerConfig:
     max_dataset_bytes: int = 512 * 1024 * 1024
     max_artifact_bytes: int = 512 * 1024 * 1024
     max_zip_members: int = 100_000
+    datasets_dir: Path | None = None
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> RunnerConfig:
@@ -36,11 +37,16 @@ class RunnerConfig:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("PORTAL_URL must be an absolute http(s) URL")
 
+        work_dir = Path(values["RUNNER_WORK_DIR"]).expanduser().resolve()
+        datasets_dir = values.get("RUNNER_DATASETS_DIR", "").strip() or str(
+            work_dir / "datasets"
+        )
         return cls(
             portal_url=url,
             token=values["PORTAL_RUNNER_TOKEN"],
             runner_id=values["RUNNER_ID"],
-            work_dir=Path(values["RUNNER_WORK_DIR"]).expanduser().resolve(),
+            work_dir=work_dir,
+            datasets_dir=Path(datasets_dir).expanduser().resolve(),
             poll_seconds=_positive_number(values, "RUNNER_POLL_SECONDS", 5),
             heartbeat_seconds=_positive_number(values, "RUNNER_HEARTBEAT_SECONDS", 20),
             request_timeout_seconds=_positive_number(

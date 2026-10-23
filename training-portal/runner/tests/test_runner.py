@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,7 @@ def portal(tmp_path):
         "complete": None,
         "requests": [],
         "uploaded": [],
+        "inventories": [],
     }
     dataset = io.BytesIO()
     with zipfile.ZipFile(dataset, "w") as archive:
@@ -88,6 +90,9 @@ def portal(tmp_path):
 
         def json(self, method, path, *, json_body=None, headers=None, expected=(200,)):
             state["requests"].append((method, path, json_body, headers))
+            if path == "/api/v1/runner/datasets":
+                state["inventories"].append(json_body)
+                return {"ok": True}
             if path == "/api/v1/runner/claim":
                 state["claims"] += 1
                 return (
@@ -113,8 +118,12 @@ def portal(tmp_path):
                 return {"ok": True}
             raise AssertionError(f"unexpected fake portal route {method} {path}")
 
-        def download_file(self, path, destination, *, max_bytes, headers=None):
+        def download_file(
+            self, path, destination, *, max_bytes, headers=None, cancelled=None
+        ):
             state["requests"].append(("GET", path, None, headers))
+            if cancelled is not None:
+                cancelled()
             data = dataset.getvalue()
             assert len(data) <= max_bytes
             destination.write_bytes(data)
@@ -136,10 +145,23 @@ def test_claim_empty_queue_returns_without_waiting(portal):
     client.empty = True
     assert Runner(config, client=client).run_once() is False
     assert state["claims"] == 1
+    inventory = next(
+        item for item in state["requests"] if item[1] == "/api/v1/runner/datasets"
+    )
+    claim = next(
+        item for item in state["requests"] if item[1] == "/api/v1/runner/claim"
+    )
+    assert inventory[2] == {"runner_id": "gpu-1", "datasets": []}
+    assert claim[2] == {
+        "runner_id": "gpu-1",
+        "job_kinds": ["custom", "prepare_dataset", "base_train", "refine"],
+        "datasets": [],
+    }
 
 
 def test_heartbeat_loss_cancels_subprocess_and_reports_failure(portal, monkeypatch):
     client, state, config, root = portal
+    config = replace(config, heartbeat_seconds=0.2)
     source = root / "yolov9"
     source.mkdir()
     (source / "train_dual.py").write_text(

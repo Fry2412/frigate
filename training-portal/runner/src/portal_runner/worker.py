@@ -46,6 +46,8 @@ class Job:
     epochs: int
     batch_size: int
     image_size: int
+    kind: str = "custom"
+    options: dict[str, Any] | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Job:
@@ -73,9 +75,17 @@ class Job:
             raise ValueError("claim response contains an invalid lease token")
         if payload["recipe"] != RECIPE:
             raise ValueError(f"unsupported training recipe: {payload['recipe']!r}")
+        kind = payload.get("kind", "custom")
+        if not isinstance(kind, str) or kind not in {
+            "custom",
+            "prepare_dataset",
+            "base_train",
+            "refine",
+        }:
+            raise ValueError(f"unsupported job kind: {kind!r}")
         if (
             not isinstance(payload["classes"], list)
-            or not payload["classes"]
+            or (kind != "prepare_dataset" and not payload["classes"])
             or not all(
                 isinstance(name, str) and 0 < len(name.strip()) <= 100
                 for name in payload["classes"]
@@ -95,7 +105,51 @@ class Job:
                 or not minimum <= value <= maximum
             ):
                 raise ValueError(f"job {field} must be between {minimum} and {maximum}")
-        return cls(**{key: payload[key] for key in required})
+        options = payload.get("options", {})
+        if not isinstance(options, dict):
+            raise TypeError("job options must be an object")
+        if kind == "base_train":
+            initialization = options.get("initialization", "pretrained")
+            if not isinstance(initialization, str) or initialization not in {
+                "pretrained",
+                "scratch",
+            }:
+                raise ValueError("base initialization must be pretrained or scratch")
+            options["initialization"] = initialization
+            _dataset_ref(options.get("dataset"))
+        if kind == "refine":
+            cameras = options.get("cameras")
+            if (
+                not isinstance(cameras, list)
+                or not cameras
+                or len(cameras) > 200
+                or not all(
+                    isinstance(name, str) and 0 < len(name.strip()) <= 100
+                    for name in cameras
+                )
+            ):
+                raise ValueError("refinement requires a nonempty list of camera names")
+            replay_images = options.get("replay_images", 0)
+            _bounded_int(replay_images, 0, 5000, "replay_images")
+            model = options.get("base_model")
+            if not isinstance(model, dict) or not _is_sha256(model.get("sha256")):
+                raise ValueError("refinement claim has invalid promoted model metadata")
+            try:
+                model_id = str(uuid.UUID(model.get("id")))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise ValueError(
+                    "refinement claim contains an invalid model UUID"
+                ) from exc
+            if (
+                model_id != model.get("id")
+                or model.get("classes") != payload["classes"]
+            ):
+                raise ValueError("parent taxonomy or model UUID does not match claim")
+            if replay_images:
+                _dataset_ref(options.get("dataset"))
+        return cls(
+            **{key: payload[key] for key in required}, kind=kind, options=options
+        )
 
 
 class Heartbeat:
@@ -154,15 +208,44 @@ class Runner:
         ).resolve()
 
     def claim(self) -> Job | None:
+        datasets = self._inventory()
+        self.client.json(
+            "POST",
+            "/api/v1/runner/datasets",
+            json_body={"runner_id": self.runner_id, "datasets": datasets},
+            expected=(200, 204),
+        )
         payload = self.client.json(
             "POST",
             "/api/v1/runner/claim",
-            json_body={"runner_id": self.runner_id},
+            json_body={
+                "runner_id": self.runner_id,
+                "job_kinds": ["custom", "prepare_dataset", "base_train", "refine"],
+                "datasets": [
+                    {"id": item["id"], "manifest_sha256": item["manifest_sha256"]}
+                    for item in datasets
+                ],
+            },
             expected=(200, 204),
         )
         if payload is None:
             return None
         return Job.from_payload(payload)
+
+    def _inventory(self) -> list[dict[str, Any]]:
+        from .datasets import inventory
+
+        root = self.config.datasets_dir or (self.config.work_dir / "datasets")
+        return inventory(root)
+
+    def _check_cancelled(self, heartbeat: Heartbeat) -> None:
+        if heartbeat.lost.is_set():
+            raise LeaseLost("heartbeat rejected or unreachable")
+        if self.stop_event.is_set():
+            raise StopRequested("runner shutdown requested")
+
+    def _cancellation_callback(self, heartbeat: Heartbeat) -> Callable[[], bool]:
+        return lambda: self._check_cancelled(heartbeat) or False
 
     def run_once(self) -> bool:
         """Run at most one claimed job; return whether a job was found."""
@@ -177,7 +260,7 @@ class Runner:
         while not self.stop_event.is_set():
             try:
                 found = self.run_once()
-            except (PortalError, ValueError) as exc:
+            except (PortalError, ValueError, TypeError) as exc:
                 LOG.error("runner poll failed: %s", exc)
                 found = False
                 if once:
@@ -194,20 +277,26 @@ class Runner:
         artifact_path = work / "artifact.zip"
         try:
             heartbeat.start()
-            dataset_zip = work / "dataset.zip"
-            self._download_dataset(job, dataset_zip)
-            dataset_dir = work / "dataset"
-            safe_extract_zip(
-                dataset_zip,
-                dataset_dir,
-                max_bytes=self.config.max_dataset_bytes,
-                max_members=self.config.max_zip_members,
-            )
-            if not (dataset_dir / "manifest.json").is_file():
-                raise ValueError("dataset archive is missing manifest.json")
-            dataset_yaml = self._rewrite_data_yaml(dataset_dir, job.classes)
-            self._train(job, dataset_yaml, work, heartbeat)
-            self._make_artifact(job, work, artifact_path)
+            if job.kind == "prepare_dataset":
+                self._prepare_dataset(job, work, heartbeat)
+                self._make_report_artifact(job, work, artifact_path)
+            else:
+                dataset_dir, weights_override = self._stage_training_dataset(
+                    job, work, heartbeat
+                )
+                dataset_yaml = self._rewrite_data_yaml(
+                    dataset_dir,
+                    job.classes,
+                    output_path=work / "training-data.yaml",
+                )
+                self._train(
+                    job,
+                    dataset_yaml,
+                    work,
+                    heartbeat,
+                    weights_override=weights_override,
+                )
+                self._make_artifact(job, work, artifact_path)
             if heartbeat.lost.is_set():
                 raise LeaseLost("lease was lost before artifact upload")
             self._upload_artifact(job, artifact_path)
@@ -248,16 +337,190 @@ class Runner:
                     "Retained failed/interrupted job files for diagnosis: %s", work
                 )
 
-    def _download_dataset(self, job: Job, destination: Path) -> None:
+    def _prepare_dataset(self, job: Job, work: Path, heartbeat: Heartbeat) -> None:
+        from .datasets import prepare_coco
+
+        options = job.options or {}
+        prepare = options.get("prepare") or options
+        if prepare.get("source") != "coco2017":
+            raise ValueError("only fixed COCO 2017 preparation is supported")
+        train_images = _bounded_int(
+            prepare.get("train_images"), 80, 118287, "train_images"
+        )
+        val_images = _bounded_int(prepare.get("val_images"), 80, 5000, "val_images")
+        seed = _bounded_int(prepare.get("seed", 0), 0, 2**31 - 1, "seed")
+        root = self.config.datasets_dir or (self.config.work_dir / "datasets")
+
+        def cancelled() -> bool:
+            self._check_cancelled(heartbeat)
+            return False
+
+        descriptor = prepare_coco(
+            root, train_images, val_images, seed, cancelled=cancelled
+        )
+        self._check_cancelled(heartbeat)
+        self.client.json(
+            "POST",
+            "/api/v1/runner/datasets",
+            json_body={"runner_id": self.runner_id, "datasets": self._inventory()},
+            expected=(200, 204),
+        )
+        report = {
+            "kind": job.kind,
+            "dataset": {
+                key: value for key, value in descriptor.items() if key != "path"
+            },
+            "requested": {
+                "train_images": train_images,
+                "val_images": val_images,
+                "seed": seed,
+            },
+            "actual": {
+                "train_images": descriptor["train_images"],
+                "val_images": descriptor["val_images"],
+            },
+            "finished_at": datetime.now(UTC).isoformat(),
+        }
+        (work / "dataset-report.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _stage_training_dataset(
+        self, job: Job, work: Path, heartbeat: Heartbeat
+    ) -> tuple[Path, Path | None]:
+        options = job.options or {}
+        dataset_ref = options.get("dataset")
+        weights_override = None
+        if job.kind == "base_train":
+            dataset_root = self.config.datasets_dir or (
+                self.config.work_dir / "datasets"
+            )
+            from .datasets import resolve_dataset
+
+            resolved = resolve_dataset(dataset_root, _dataset_ref(dataset_ref))
+            self._check_cancelled(heartbeat)
+            dataset_dir = Path(resolved["path"])
+            if resolved["classes"] != job.classes:
+                raise ValueError("dataset taxonomy does not match the claimed job")
+        else:
+            dataset_dir = work / "dataset"
+            self._download_dataset(job, work / "dataset.zip", heartbeat)
+            self._check_cancelled(heartbeat)
+            safe_extract_zip(
+                work / "dataset.zip",
+                dataset_dir,
+                max_bytes=self.config.max_dataset_bytes,
+                max_members=self.config.max_zip_members,
+            )
+            if not (dataset_dir / "manifest.json").is_file():
+                raise ValueError("dataset archive is missing manifest.json")
+
+        if job.kind == "refine":
+            if heartbeat.lost.is_set():
+                raise LeaseLost("heartbeat rejected or unreachable")
+            model = options.get("base_model")
+            if not isinstance(model, dict) or not _is_sha256(model.get("sha256")):
+                raise ValueError("refinement claim has invalid promoted model metadata")
+            checkpoint = work / "parent-best.pt"
+            self.client.download_file(
+                f"/api/v1/runner/jobs/{job.id}/base-model",
+                checkpoint,
+                headers={"X-Lease-Token": job.lease_token},
+                max_bytes=self.config.max_dataset_bytes,
+                cancelled=self._cancellation_callback(heartbeat),
+            )
+            self._check_cancelled(heartbeat)
+            if _file_sha256(checkpoint) != model["sha256"]:
+                raise ValueError("promoted parent checkpoint SHA256 mismatch")
+            self._check_cancelled(heartbeat)
+            if model.get("classes") != job.classes:
+                raise ValueError("parent taxonomy does not match the claimed job")
+            replay_images = _bounded_int(
+                options.get("replay_images", 0), 0, 5000, "replay_images"
+            )
+            if replay_images:
+                dataset_root = self.config.datasets_dir or (
+                    self.config.work_dir / "datasets"
+                )
+                from .datasets import resolve_dataset
+
+                resolved = resolve_dataset(dataset_root, _dataset_ref(dataset_ref))
+                self._check_cancelled(heartbeat)
+                if resolved["classes"] != job.classes:
+                    raise ValueError(
+                        "replay dataset taxonomy does not match parent model"
+                    )
+                self._add_training_replay(
+                    dataset_dir,
+                    Path(resolved["path"]),
+                    replay_images,
+                    job.id,
+                    cancelled=self._cancellation_callback(heartbeat),
+                )
+            weights_override = checkpoint
+        return dataset_dir, weights_override
+
+    @staticmethod
+    def _add_training_replay(
+        own_dataset: Path,
+        public_dataset: Path,
+        count: int,
+        job_id: str,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
+        manifest = json.loads(
+            (public_dataset / "manifest.json").read_text(encoding="utf-8")
+        )
+        digest = manifest.get("manifest_sha256") or _file_sha256(
+            public_dataset / "manifest.json"
+        )
+        candidates = sorted((public_dataset / "images" / "train").glob("*"))
+        if count > len(candidates):
+            raise ValueError("replay request exceeds available public training images")
+        # Stable ordering is independent of directory enumeration and never reads val.
+        candidates.sort(
+            key=lambda path: hashlib.sha256(
+                f"{job_id}:{digest}:{path.name}".encode()
+            ).digest()
+        )
+        for source_image in candidates[:count]:
+            if cancelled is not None:
+                cancelled()
+            source_label = (
+                public_dataset / "labels" / "train" / f"{source_image.stem}.txt"
+            )
+            if not source_label.is_file():
+                raise ValueError("replay training image is missing its label")
+            suffix = hashlib.sha256(source_image.name.encode()).hexdigest()[:16]
+            target_stem = f"replay_{suffix}_{source_image.stem}"
+            target_image = (
+                own_dataset / "images" / "train" / f"{target_stem}{source_image.suffix}"
+            )
+            target_label = own_dataset / "labels" / "train" / f"{target_stem}.txt"
+            if target_image.exists() or target_label.exists():
+                raise ValueError("replay filename collided with own training data")
+            shutil.copy2(source_image, target_image)
+            shutil.copy2(source_label, target_label)
+
+    def _download_dataset(
+        self, job: Job, destination: Path, heartbeat: Heartbeat
+    ) -> None:
         self.client.download_file(
             f"/api/v1/runner/jobs/{job.id}/dataset",
             destination,
             headers={"X-Lease-Token": job.lease_token},
             max_bytes=self.config.max_dataset_bytes,
+            cancelled=self._cancellation_callback(heartbeat),
         )
 
     @staticmethod
-    def _rewrite_data_yaml(dataset_root: Path, expected_classes: list[str]) -> Path:
+    def _rewrite_data_yaml(
+        dataset_root: Path,
+        expected_classes: list[str],
+        *,
+        output_path: Path | None = None,
+    ) -> Path:
         path = dataset_root / "data.yaml"
         if not path.is_file():
             raise ValueError("dataset archive is missing data.yaml")
@@ -287,11 +550,19 @@ class Runner:
             "train": "images/train",
             "val": "images/val",
         }
-        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-        return path
+        target = output_path or path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        return target
 
     def _train(
-        self, job: Job, data_yaml: Path, work: Path, heartbeat: Heartbeat
+        self,
+        job: Job,
+        data_yaml: Path,
+        work: Path,
+        heartbeat: Heartbeat,
+        *,
+        weights_override: Path | None = None,
     ) -> None:
         source = self.source_dir
         script = source / "train_dual.py"
@@ -300,6 +571,17 @@ class Runner:
                 f"YOLOv9 source is missing at {source}; build the runner image first"
             )
         output = work / "runs"
+        refine = job.kind == "refine"
+        hyp_path = source / "data/hyps/hyp.scratch-high.yaml"
+        if refine:
+            hyp_data = yaml.safe_load(hyp_path.read_text(encoding="utf-8"))
+            if not isinstance(hyp_data, dict):
+                raise ValueError("fixed YOLOv9 hyperparameter file is invalid")
+            hyp_data["lr0"] = 0.001
+            hyp_path = work / "refine-hyp.yaml"
+            hyp_path.write_text(
+                yaml.safe_dump(hyp_data, sort_keys=False), encoding="utf-8"
+            )
         argv = [
             "python",
             str(script),
@@ -308,7 +590,7 @@ class Runner:
             "--cfg",
             str(source / "models/detect/yolov9-s.yaml"),
             "--hyp",
-            str(source / "data/hyps/hyp.scratch-high.yaml"),
+            str(hyp_path),
             "--epochs",
             str(job.epochs),
             "--batch-size",
@@ -325,8 +607,27 @@ class Runner:
             "train",
             "--exist-ok",
         ]
-        weights = os.environ.get("YOLO_WEIGHTS", "/weights/yolov9-s.pt").strip()
-        if weights:
+        if refine:
+            argv.extend(["--freeze", "10"])
+        weights = (
+            str(weights_override)
+            if weights_override
+            else (
+                ""
+                if job.kind == "base_train"
+                and (job.options or {}).get("initialization") == "scratch"
+                else os.environ.get("YOLO_WEIGHTS", "/weights/yolov9-s.pt").strip()
+            )
+        )
+        if (
+            job.kind == "base_train"
+            and (job.options or {}).get("initialization", "pretrained") == "pretrained"
+            and not weights
+        ):
+            raise ValueError(
+                "pretrained base training requires an existing local YOLO_WEIGHTS checkpoint"
+            )
+        if weights and weights_override is None:
             weight_path = Path(weights).expanduser().resolve()
             if not weight_path.is_file():
                 raise ValueError(
@@ -345,6 +646,7 @@ class Runner:
         log_path = work / "training.log"
         LOG.info("starting fixed YOLOv9 train_dual.py recipe for %s", job.id)
         with log_path.open("w", encoding="utf-8") as log:
+            self._check_cancelled(heartbeat)
             process = self.popen(
                 argv,
                 cwd=source,
@@ -397,32 +699,80 @@ class Runner:
         shutil.copy2(source_run / "weights/last.pt", bundle / "last.pt")
         shutil.copy2(source_run / "results.csv", bundle / "metrics.csv")
         shutil.copy2(work / "training.log", bundle / "training.log")
+        options = job.options or {}
+        parent = options.get("base_model") or {}
+        dataset_ref = options.get("dataset") or {}
+        configured_weights = os.environ.get(
+            "YOLO_WEIGHTS", "/weights/yolov9-s.pt"
+        ).strip()
+        own_dataset_digest = (
+            _file_sha256(work / "dataset" / "manifest.json")
+            if (work / "dataset" / "manifest.json").is_file()
+            else None
+        )
+        dataset_digest = (
+            dataset_ref.get("manifest_sha256")
+            if job.kind == "base_train"
+            else own_dataset_digest
+        )
         provenance = {
             "job_id": job.id,
+            "kind": job.kind,
             "recipe": RECIPE,
             "runner_id": self.runner_id,
             "yolov9_repository": YOLOV9_REPOSITORY,
             "yolov9_commit": YOLOV9_COMMIT,
-            "weights_source": os.environ.get("YOLO_WEIGHTS", "/weights/yolov9-s.pt")
-            or "scratch",
-            "weights_sha256": _file_sha256(
-                Path(
-                    os.environ.get("YOLO_WEIGHTS", "/weights/yolov9-s.pt")
-                ).expanduser()
-            )
-            if os.environ.get("YOLO_WEIGHTS", "/weights/yolov9-s.pt").strip()
+            "weights_source": "promoted-parent"
+            if job.kind == "refine"
+            else (
+                "scratch"
+                if job.kind == "base_train"
+                and (options.get("initialization") == "scratch")
+                else configured_weights or "scratch"
+            ),
+            "weights_sha256": parent.get("sha256")
+            if job.kind == "refine"
+            else (
+                _file_sha256(Path(configured_weights).expanduser())
+                if configured_weights
+                and not (
+                    job.kind == "base_train"
+                    and options.get("initialization") == "scratch"
+                )
+                and Path(configured_weights).expanduser().is_file()
+                else None
+            ),
+            "dataset_manifest_sha256": dataset_digest,
+            "own_dataset_manifest_sha256": own_dataset_digest,
+            "replay_dataset_manifest_sha256": dataset_ref.get("manifest_sha256")
+            if job.kind == "refine" and options.get("replay_images", 0)
             else None,
-            "dataset_manifest_sha256": _file_sha256(work / "dataset" / "manifest.json"),
             "classes": job.classes,
+            "parent_model_id": parent.get("id"),
+            "parent_checkpoint_sha256": parent.get("sha256"),
+            "dataset_id": dataset_ref.get("id"),
+            "camera_filter": options.get("cameras", []),
+            "replay_images": options.get("replay_images", 0),
+            "hyp_policy": {"lr0": 0.001, "freeze": 10, "optimizer_state": "restarted"}
+            if job.kind == "refine"
+            else {"initialization": options.get("initialization", "pretrained")}
+            if job.kind == "base_train"
+            else {"policy": "fixed YOLOv9 default"},
             "epochs": job.epochs,
             "batch_size": job.batch_size,
             "image_size": job.image_size,
             "finished_at": datetime.now(UTC).isoformat(),
-            "torch_load_policy": "Trusted fixed YOLOv9 code and locally selected weights only; never load user artifacts.",
+            "torch_load_policy": "Scoped to pinned YOLOv9 subprocess; inputs are operator-selected trusted local weights or the active job's admin-promoted checkpoint after SHA256 validation. Arbitrary uploads and dataset files are never loaded as checkpoints.",
         }
         (bundle / "provenance.json").write_text(
             json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
         )
+        make_zip(bundle, artifact_path, max_bytes=self.config.max_artifact_bytes)
+
+    def _make_report_artifact(self, job: Job, work: Path, artifact_path: Path) -> None:
+        bundle = work / "bundle"
+        bundle.mkdir()
+        shutil.copy2(work / "dataset-report.json", bundle / "dataset-report.json")
         make_zip(bundle, artifact_path, max_bytes=self.config.max_artifact_bytes)
 
     def _upload_artifact(self, job: Job, artifact_path: Path) -> None:
@@ -478,3 +828,40 @@ def _file_sha256(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _dataset_ref(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise TypeError("job is missing a dataset reference")
+    dataset_id, digest = value.get("id"), value.get("manifest_sha256")
+    if (
+        not isinstance(dataset_id, str)
+        or not dataset_id
+        or len(dataset_id) > 80
+        or not dataset_id[0].isalnum()
+        or not all(
+            character in "abcdefghijklmnopqrstuvwxyz0123456789._-"
+            for character in dataset_id
+        )
+        or not _is_sha256(digest)
+    ):
+        raise ValueError("job contains an invalid dataset reference")
+    return {"id": dataset_id, "manifest_sha256": digest}
+
+
+def _bounded_int(value: Any, minimum: int, maximum: int, field: str) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
+        raise ValueError(f"{field} must be between {minimum} and {maximum}")
+    return value

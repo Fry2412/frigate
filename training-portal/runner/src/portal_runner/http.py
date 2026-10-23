@@ -6,6 +6,7 @@ import os
 import ssl
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -90,10 +91,13 @@ class PortalClient:
         *,
         max_bytes: int,
         headers: dict[str, str] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> int:
+        _check_download_cancelled(cancelled)
         connection, response = self._stream_request("GET", path, headers=headers)
         temp = destination.with_suffix(destination.suffix + ".part")
         try:
+            _check_download_cancelled(cancelled)
             if response.status != 200:
                 raise PortalError(
                     f"portal returned HTTP {response.status}: {response.read(4096).decode('utf-8', 'replace')[:500]}",
@@ -106,6 +110,7 @@ class PortalClient:
             destination.parent.mkdir(parents=True, exist_ok=True)
             with temp.open("wb") as output:
                 while chunk := response.read(1024 * 1024):
+                    _check_download_cancelled(cancelled)
                     count += len(chunk)
                     if count > max_bytes:
                         raise PortalError("dataset exceeds configured download limit")
@@ -184,3 +189,8 @@ class PortalClient:
         except Exception:
             connection.close()
             raise
+
+
+def _check_download_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise PortalError("portal download cancelled")

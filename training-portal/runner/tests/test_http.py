@@ -48,3 +48,44 @@ def test_json_request_never_follows_redirect_with_runner_credentials():
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+
+def test_streaming_download_cancellation_removes_partial_file(tmp_path, monkeypatch):
+    class Response:
+        status = 200
+
+        def __init__(self):
+            self.chunks = iter((b"partial bytes", b""))
+
+        def getheader(self, _name):
+            return None
+
+        def read(self, _size):
+            return next(self.chunks)
+
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    client = PortalClient("https://portal.example", "runner-token")
+    response, connection = Response(), Connection()
+    monkeypatch.setattr(
+        client, "_stream_request", lambda *_args, **_kwargs: (connection, response)
+    )
+    checks = 0
+
+    def cancelled():
+        nonlocal checks
+        checks += 1
+        return checks == 2
+
+    destination = tmp_path / "downloads" / "dataset.zip"
+    with pytest.raises(PortalError, match="download cancelled"):
+        client.download_file(
+            "/dataset", destination, max_bytes=1024, cancelled=cancelled
+        )
+    assert connection.closed
+    assert not destination.exists()
+    assert not destination.with_suffix(".zip.part").exists()

@@ -11,6 +11,11 @@ from .worker import Runner
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "datasets":
+        from .datasets import main as datasets_main
+
+        return datasets_main(argv[1:])
     parser = argparse.ArgumentParser(description="Run fixed YOLOv9-s portal jobs")
     parser.add_argument(
         "--once",
