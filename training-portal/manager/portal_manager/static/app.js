@@ -1,5 +1,9 @@
+import { createStudio } from "./studio.js";
+
 (() => {
   let token = "";
+  let refreshTimer;
+  const disposeImages = [];
   const el = (id) => document.getElementById(id);
   const message = (text, error = false) => { el("message").textContent = text; el("message").classList.toggle("error", error); };
   const request = async (url, options = {}) => {
@@ -9,21 +13,26 @@
     if (!response.ok) {
       if (response.status === 204) return null;
       let detail = `Request failed (${response.status})`;
-      try { const body = await response.json(); detail = body.detail || detail; } catch {}
-      throw new Error(detail);
+      try { const body = await response.json(); detail = Array.isArray(body.detail) ? body.detail.map((item) => `${item.loc?.slice(1).join(".") || "Input"}: ${item.msg}`).join("; ") : body.detail || detail; } catch {}
+      const error = new Error(detail); error.status = response.status; throw error;
     }
     if (response.status === 204) return null;
     const contentType = response.headers.get("content-type") || "";
     return contentType.includes("application/zip") || contentType.startsWith("image/") ? response.blob() : response.json();
   };
   const node = (tag, text, className) => { const item = document.createElement(tag); if (text !== undefined) item.textContent = text; if (className) item.className = className; return item; };
+  const studio = createStudio(request, message);
 
   el("connect").addEventListener("click", async () => {
     token = el("token").value;
-    try { await loadImages(); await loadJobs(); el("connection").textContent = "Connected"; message("Connected to manager."); }
-    catch (error) { token = ""; el("connection").textContent = "Disconnected"; message(error.message, true); }
+    clearInterval(refreshTimer);
+    try {
+      await loadImages(); await loadJobs(); el("connection").textContent = "Connected"; message("Connected to manager.");
+      refreshTimer = setInterval(async () => { try { await loadJobs(); } catch (error) { clearInterval(refreshTimer); studio.disconnect(); el("connection").textContent = "Disconnected"; message(error.message, true); } }, 10000);
+    }
+    catch (error) { token = ""; studio.disconnect(); el("connection").textContent = "Disconnected"; message(error.message, true); }
   });
-  el("refresh").addEventListener("click", async () => { try { await loadImages(); await loadJobs(); message("Updated."); } catch (error) { message(error.message, true); } });
+  el("refresh").addEventListener("click", async () => { try { await loadImages(); await loadJobs(); message("Updated."); } catch (error) { clearInterval(refreshTimer); studio.disconnect(); el("connection").textContent = "Disconnected"; message(error.message, true); } });
   el("upload-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
@@ -46,6 +55,8 @@
 
   async function loadImages() {
     const images = await request("/api/v1/images");
+    studio.setImages(images);
+    for (const dispose of disposeImages.splice(0)) dispose();
     const grid = el("images"); grid.replaceChildren();
     if (!images.length) { grid.append(node("p", "No images yet.", "empty")); return; }
     for (const image of images) grid.append(await makeImageCard(image));
@@ -64,7 +75,8 @@
       if (selected) drawBox(selected, "#efab37");
     };
     const drawBox = (box, color) => { const rect = canvas.getBoundingClientRect(); ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(box[0]*rect.width,box[1]*rect.height,box[2]*rect.width,box[3]*rect.height); };
-    img.addEventListener("load", redraw); new ResizeObserver(redraw).observe(wrap);
+    img.addEventListener("load", redraw); const observer = new ResizeObserver(redraw); observer.observe(wrap);
+    disposeImages.push(() => { observer.disconnect(); URL.revokeObjectURL(img.src); });
     const point = (event) => { const rect=canvas.getBoundingClientRect();return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]; };
     canvas.addEventListener("pointerdown",(event)=>{start=point(event);canvas.setPointerCapture(event.pointerId);selected=null;});
     canvas.addEventListener("pointermove",(event)=>{if(!start)return;const end=point(event);selected=[Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.abs(end[0]-start[0]),Math.abs(end[1]-start[1])];redraw();});
@@ -78,5 +90,6 @@
     return card;
   }
   function renderAnnotations(list,image,redraw=()=>{}){list.replaceChildren();if(!image.annotations.length){list.append(node("li","No annotations"));return;}for(const annotation of image.annotations){const li=node("li",`${annotation.label} · ${annotation.negative?"false positive":"target"}${annotation.difficult?" · difficult":""}`);const remove=node("button","Remove");remove.type="button";remove.addEventListener("click",async()=>{try{await request(`/api/v1/images/${encodeURIComponent(image.id)}/annotations/${encodeURIComponent(annotation.id)}`,{method:"DELETE"});image.annotations=image.annotations.filter((item)=>item.id!==annotation.id);image.verified=false;redraw();renderAnnotations(list,image,redraw);message("Annotation removed. Review the image again.");}catch(error){message(error.message,true);}});li.append(remove);list.append(li);}}
-  async function loadJobs(){const jobs=await request("/api/v1/jobs");const box=el("jobs");box.replaceChildren();if(!jobs.length){box.append(node("p","No training jobs yet.","empty"));return;}for(const job of jobs){const row=node("div",undefined,"job-row");row.append(node("span",`${job.status.toUpperCase()} · ${job.id}${job.error?` · ${job.error}`:""}`));if(job.artifact_available){const download=node("button","Download result");download.type="button";download.addEventListener("click",async()=>{try{const blob=await request(`/api/v1/jobs/${encodeURIComponent(job.id)}/artifact`);const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${job.id}-result.zip`;link.click();URL.revokeObjectURL(link.href);}catch(error){message(error.message,true);}});row.append(download);}box.append(row);}}
+  async function loadJobs() { await studio.refresh(); }
+  window.addEventListener("pagehide", () => { clearInterval(refreshTimer); for (const dispose of disposeImages.splice(0)) dispose(); });
 })();

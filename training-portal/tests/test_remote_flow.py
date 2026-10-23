@@ -7,46 +7,16 @@ artifact upload and completion use their real implementations over localhost.
 import base64
 import io
 import json
-import socket
-import threading
-import time
 import zipfile
 
 import httpx
-import pytest
-import uvicorn
 from PIL import Image
-from portal_manager.app import create_app
 from portal_runner.config import RunnerConfig
 from portal_runner.worker import Runner
 
 
-@pytest.fixture
-def remote_manager(tmp_path):
-    app = create_app(tmp_path / "manager", "test-admin", "test-runner")
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    port = listener.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
-    thread = threading.Thread(
-        target=server.run, kwargs={"sockets": [listener]}, daemon=True
-    )
-    thread.start()
-    try:
-        deadline = time.monotonic() + 10
-        while not server.started:
-            if not thread.is_alive() or time.monotonic() > deadline:
-                pytest.fail("manager did not start")
-            time.sleep(0.01)
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-        listener.close()
-
-
 class FixtureTrainer(Runner):
-    def _train(self, job, data_yaml, work, heartbeat):
+    def _train(self, job, data_yaml, work, heartbeat, *, weights_override=None):
         # Explicit test double; these are not usable model checkpoints.
         assert data_yaml.is_file()
         assert not heartbeat.lost.is_set()
@@ -140,7 +110,7 @@ def test_remote_training_failure_is_reported_without_success_artifact(
     job_id = seed_job(remote_manager)
 
     class FailingTrainer(FixtureTrainer):
-        def _train(self, *args):
+        def _train(self, *args, **kwargs):
             raise RuntimeError("test GPU failure")
 
     runner = FailingTrainer(
