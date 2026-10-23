@@ -17,6 +17,7 @@ Trainingscheckpoints, aber noch **kein Coral-kompatibles Inferenzmodell**.
 - [Architektur, Produktumfang und Roadmap](tasks/plan.md)
 - [Vorläufige Umsetzungsschritte mit Abnahmekriterien](tasks/todo.md)
 - [Recherche und Quellen mit Einschränkungen](RESEARCH.md)
+- [Vorhandene Frigate+-Modelle: Voraussetzungen und aktuelle Grenzen](EXTERNAL-MODELS.md)
 
 Die erste offene Hardwarefrage ist geklärt: Der Trainingsrechner steht noch
 nicht fest; Linux x86-64 mit NVIDIA-GPU ist die vereinbarte Planungsannahme.
