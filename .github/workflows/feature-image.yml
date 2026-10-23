@@ -7,6 +7,9 @@ on:
       - main
       - "feat/**"
       - "codex/training-portal-poc"
+    paths-ignore:
+      - "training-portal/**"
+      - ".github/workflows/training-portal.yml"
 
 concurrency:
   group: fork-image-${{ github.ref }}

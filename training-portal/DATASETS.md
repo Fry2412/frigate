@@ -1,8 +1,10 @@
 # Externe Trainingsdaten für das Frigate-Portal
 
-Recherche vom 23.10.2026. Status: Vorschlag für den nächsten Ausbau, **kein
-implementierter Dataset-Importer**. Geprüft wurden offizielle Dokumentationen,
-Originalcode und die offizielle Open-Images-Liste der 600 Box-Klassen.
+Recherche vom 23.10.2026. Status im POC: automatisierte COCO-2017-
+Teilmengenvorbereitung und ein lokaler Importer für ausdrücklich vollständig
+geprüfte COCO-Formatdaten sind implementiert. Ein ungeprüfter Import roher
+Open-Images-CSV-Dateien ist nicht unterstützt. Der Rechercheteil unten erklärt
+weiterhin Quellen, Lizenzen und Grenzen.
 
 ## Ergebnis
 
@@ -24,6 +26,22 @@ Vokabulare. `truck` wird standardmäßig als `car` angezeigt. Eine lange Labelda
 beweist außerdem nicht, welche Klassen ein konkreter Modellcheckpoint gelernt
 hat. Quellen: [Frigate-Objekte](https://docs.frigate.video/configuration/objects/),
 [Frigate+-Klassen](https://docs.frigate.video/plus/#available-label-types).
+
+Der Runner lädt für eine angeforderte COCO-Teilmenge das offizielle
+Train-/Val-Annotationsarchiv und danach nur die ausgewählten Bilder. Die
+Teilmenge ist deterministisch, deckt alle 80 COCO-Klassen in beiden originalen
+Splits ab und wird unter dem SHA256 des Manifests veröffentlicht. Ein Runner
+prüft dieses Manifest sowie die darin gelisteten Dateipfade und Hashes vor
+Basistraining oder Replay. Die genauen Größenlimits und der lokale Importbefehl
+stehen in [README.md](README.md#workflow-coco-basis-und-kamerarefinement).
+
+Open Images V7 wird nicht direkt vom Runner heruntergeladen. Ein Betreiber kann
+einen lokal vorbereiteten, vollständig geprüften COCO-Formatimport mit
+expliziter Klassenreihenfolge und Lizenzbestätigung unter
+`openimages-v7-curated` ablegen. Der Klassenbestand muss vorab geprüft werden;
+fehlende Boxen werden im aktuellen YOLO-Rezept nicht als unbekannte Labels
+maskiert. Deshalb dürfen unvollständig annotierte Bilder nicht als sichere
+Hintergrundbeispiele behandelt werden.
 
 ## Geeignete Quellen
 
@@ -123,16 +141,19 @@ Zulässige Integrationsstrategien:
    ausschließen, statt nur die Box zu löschen und das Bild als Hintergrund
    weiterzuverwenden.
 
-Für den nächsten kleinen Implementierungsschritt ist Variante 1 mit `coco80`
-am einfachsten überprüfbar. Eine automatische KI-Vorannotation kann später
-Prüfarbeit reduzieren, ersetzt aber keine bestätigte Ground Truth.
+Der implementierte automatisierte Einstieg verwendet `coco80`. Eine
+automatische KI-Vorannotation kann später Prüfarbeit reduzieren, ersetzt aber
+keine bestätigte Ground Truth.
 
 ## Training mit eigenen Bildern
 
-Mit vertrauenswürdigen vortrainierten YOLOv9-Gewichten beginnen. Bei jeder
-Anpassung öffentliche Referenzdaten und eigene geprüfte Kamerabilder gemeinsam
-verwenden und die Mischung experimentell bestimmen. Keine feste optimale Quote
-ist durch diese Recherche belegt.
+Der POC kann zunächst ein COCO-Basismodell mit vertrauenswürdigen lokalen
+YOLOv9-Gewichten oder von Grund auf trainieren. Anschließend kann ein Admin
+einen erfolgreichen Checkpoint ausdrücklich promoten. Ein Kamerarefinement
+verwendet den gespeicherten Checkpoint und nur geprüfte Bilder ausgewählter
+Kameras. Ohne Replay wird der vollständige öffentliche Basisdatensatz dafür
+nicht benötigt. Optionales Replay muss vom passenden öffentlichen Trainingssplit
+kommen; eine optimale Mischung ist durch diese Recherche nicht belegt.
 
 Nur neue Klassen oder eigene Bilder nachzutrainieren kann bisherige Fähigkeiten
 verschlechtern. Dies ist als Catastrophic Forgetting auch für Objektdetektoren
@@ -150,20 +171,21 @@ Aufnahmen: je Klasse Precision/Recall, kleine/entfernte Objekte und Tag/Nacht.
 Splits vor dem Mischen festlegen; Duplikate und zeitliche Nachbaraufnahmen
 dürfen nicht zwischen Training und Bewertung verteilt werden.
 
-## Vorgeschlagene Einbindung in unsere zwei Dienste
+## Einbindung im POC und verbleibende Arbeit
 
-1. **Manager:** Profile, Quellen, akzeptierte Nutzungsbedingungen, Mapping,
-   Bild-/Klassenstatistik und Prüfstatus verwalten. Für externe Daten eigene
-   Herkunfts- und Vollständigkeitsfelder vorsehen; nicht automatisch das
-   bestehende manuelle `verified` setzen.
-2. **Runner:** große öffentliche Datenbestände einmalig in einem persistenten
-   Volume cachen. Nur freigegebene Quellen/Rezepte verwenden. Dateiprüfsummen,
-   Quellversion, Auswahl-IDs und Mapping im unveränderlichen Jobmanifest fixieren.
-3. **Job:** Referenz auf den versionierten Basisdatensatz plus Snapshot der
-   eigenen Bilder. Keinen veränderlichen Ordnerinhalt unbemerkt nachladen.
-4. **Export:** ein gemeinsames YOLO-Verzeichnis bzw. eine erzeugte Bildliste mit
-   einheitlicher Klassenreihenfolge bereitstellen; Herkunftsmetadaten daneben
-   verlustfrei speichern.
+1. **Manager:** COCO-Vorbereitung, Datasetkatalog nach Manifestdigest und
+   Trainings-/Refinement-Jobs mit eingefrorenen Optionen verwalten. Externe
+   kuratierte Importe werden nicht automatisch als manuell geprüfte
+   Kameraaufnahmen markiert.
+2. **Runner:** COCO-Daten im persistenten Volume vorbereiten und versioniert
+   cachen. Manifeste dokumentieren Quelle, Lizenzhinweise, Taxonomie, Split,
+   Auswahlseed und Hashes der gelisteten Dateien.
+3. **Job:** Basistraining referenziert den unveränderlichen Cacheeintrag;
+   Refinement kombiniert den gespeicherten Elterncheckpoint mit einem
+   eingefrorenen Snapshot ausgewählter Kameras. Optionales Replay referenziert
+   denselben versionierten Basisdatensatz.
+4. **Export:** Coral-Konvertierung und Deployment in Frigate bleiben spätere
+   Arbeit. Herkunfts- und Prüfmetadaten müssen dafür erhalten bleiben.
 
 Das vorhandene Manager-Snapshotlimit von 5.000 Bildern und 256 MiB sowie der
 512-MiB-Runnertransfer sind POC-Grenzen. Vollständiges COCO passt nicht in diesen
@@ -172,11 +194,13 @@ immer wieder durch den Frigate-Rechner und den Tunnel zu übertragen.
 
 [FiftyOne](https://docs.voxel51.com/dataset_zoo/datasets/open_images_v7.html)
 unterstützt selektive Open-Images-Downloads nach Klasse, Split und Samplelimit.
-Es ist ein mögliches optionales Importwerkzeug, keine erforderliche weitere
-Portalinstanz. Bei Auswahl nach Klassen alle relevanten Begleitlabels erhalten
-(`only_matching=False`). `max_samples` ist keine garantierte Quote pro Klasse;
-Klassenbalance gesondert prüfen. Für einen schlanken dauerhaften Importer sind
-direkte COCO-JSON-/Open-Images-CSV-Adapter eine Alternative.
+Es ist ein mögliches optionales Werkzeug zur Vorbereitung lokaler Quelldaten,
+keine erforderliche Portalinstanz und kein direkter Importweg. Vor dem
+Portalimport müssen Daten in vollständig geprüfte COCO-JSON-Splits mit
+zugehörigen Bildern überführt werden. Bei Auswahl nach Klassen alle relevanten
+Begleitlabels erhalten (`only_matching=False`). `max_samples` ist keine
+garantierte Quote pro Klasse; Klassenbalance gesondert prüfen. Rohe
+Open-Images-CSV-Dateien werden vom Portal nicht importiert.
 
 Der Datensatzimport kann architekturunabhängig sein. Die erfolgreiche
 Coral-Konvertierung, unterstützte Klassenzahl und Latenz müssen anschließend

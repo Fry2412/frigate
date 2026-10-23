@@ -58,6 +58,55 @@ as `portal:<uuid>` in its existing submission field and checks destinations.
   attempt. Late/expired attempts cannot finish or overwrite newer output.
 - GET `/api/v1/jobs/{id}/artifact`: admin downloads zip.
 
+### COCO-Basis, gespeicherte Modelle und Kamerarefinement
+
+Der additive v2-Workflow lässt die vorhandenen `custom`-Jobs unverändert.
+`POST /api/v1/datasets/prepare` nimmt `{source:"coco2017",train_images,
+val_images,seed,license_ack:true}` entgegen. Die Bestätigung ist verpflichtend.
+Der Job wird als `prepare_dataset` mit leeren Klassen sowie den bestehenden
+Pflichtwerten `epochs=1`, `batch_size=2`, `image_size=320` eingereiht. Der Runner
+lädt die offizielle COCO-Quelle, veröffentlicht einen unveränderlichen lokalen
+Cache nach Manifestdigest und lädt einen Bericht als Artefakt hoch.
+
+Der Runner meldet seine Cacheinventur mit
+`POST /api/v1/runner/datasets` (`{runner_id,datasets:[descriptor,...]}`). Ein
+Descriptor ist `{id,name,source,manifest_sha256,classes,train_images,val_images}`.
+`GET /api/v1/datasets` (admin) gibt die Descriptors mit `runner_ids` zurück.
+Alte Runner-Clients, die `job_kinds` nicht senden, können nur `custom`-Jobs
+claimen. Neue Runner nennen unterstützte Werte aus `custom`, `base_train`,
+`refine` und `prepare_dataset`. `datasets:[{id,manifest_sha256}]` bleibt eine
+optionale Claim-Fähigkeit; Basisjobs und Replayjobs werden nur an Runner mit
+passendem Cache vergeben. Vorbereitung, Customjobs und Refinement ohne Replay
+brauchen keine öffentliche Datensatzfähigkeit.
+
+`POST /api/v1/jobs` behält `kind:"custom"` als Default. `base_train` benötigt
+`dataset:{id,manifest_sha256}` und optional `initialization:"pretrained"|
+"scratch"`; die Klassen stammen aus dem gespeicherten Descriptor. `refine`
+benötigt `base_model_id` und eine nichtleere Liste `cameras`. `replay_images`
+ist optional (0–5.000); bei positivem Wert muss `dataset` gesetzt sein und die
+Taxonomie der Elternklasse entsprechen. Die eigene Refinement-Taxonomie bleibt
+vollständig und geordnet wie im Elternmodell. Positive Kamera-Labels außerhalb
+dieser Taxonomie werden abgelehnt. Für eigene Train-/Validierungssplits braucht
+es unabhängige positive Bilder, aber keine lokalen Beispiele jeder Elternklasse.
+Die Dataset-ZIP-Route ist für `base_train` und `prepare_dataset` mit 409
+gesperrt; Refinement erhält den eigenen Kamerasnapshot.
+
+Der Claim behält v1-Felder und ergänzt `kind` sowie `options` mit
+`dataset`, `base_model`, `cameras`, `replay_images`, `initialization` und
+`prepare`. `GET /api/v1/jobs` ergänzt `kind`, `classes` und sichere `options`-
+Metadaten. `POST /api/v1/models` (`{job_id,name}`; admin) promotet ausdrücklich
+ein erfolgreiches Trainingsartefakt. Nur ein begrenztes ZIP-Mitglied `best.pt`
+wird in privaten Modellspeicher übernommen; der Manager lädt es nicht als
+Python-/PyTorch-Objekt. `GET /api/v1/models` zeigt registrierte, unveränderliche
+Modelle samt Taxonomie, SHA256, Elternlinie und Datensatzreferenz. Der Runner
+lädt einen Elterncheckpoint ausschließlich über
+`GET /api/v1/runner/jobs/{id}/base-model` mit aktiver Lease und validiert den
+Digest vor dem Trainerstart.
+
+Admins müssen Quelle und Runner eines promoteten Checkpoints vertrauen. Alle
+Runner-Inhaber des gemeinsamen Runner-Tokens gelten als Operatoren derselben
+Installation. Es gibt keine freie Checkpoint-Upload- oder URL-Eingabe.
+
 Runner env: `PORTAL_URL`, `PORTAL_RUNNER_TOKEN`, `RUNNER_ID`,
 `RUNNER_WORK_DIR`; default poll 5s, heartbeat 20s. NVIDIA build carries fixed
 YOLOv9 source revision and dependencies. Fixed subprocess argv (no shell),

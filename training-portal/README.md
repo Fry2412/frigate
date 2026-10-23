@@ -8,11 +8,11 @@ Zuerst Google Coral mit YOLOv9; weitere Ziele über explizite, getestete Profile
 Frigate+ dient als Workflow-Inspiration. Dessen gemeinschaftlich trainierte
 Basisgewichte, Daten oder Qualitätsniveau werden nicht vorausgesetzt.
 
-Der erste POC ist implementiert: optionale Frigate-Einreichung, Web-Manager
-mit manueller Bildprüfung und positiven/negativen Boxen, eingefrorene
-Trainingsdatensätze und ein entfernter YOLOv9-Runner. Die detaillierte Roadmap
-enthält weiterhin spätere Funktionen. Der POC erzeugt Trainingscheckpoints;
-er erzeugt noch **kein Coral-kompatibles Inferenzmodell**.
+Der POC umfasst optionale Frigate-Einreichung, manuelle Bildprüfung,
+COCO-Datensatzvorbereitung, YOLOv9-Basistraining und Kamerarefinement mit
+einem explizit gespeicherten Elternmodell. Open Images kann nur als lokal
+kuratierter COCO-Import eingebunden werden. Der POC erzeugt
+Trainingscheckpoints, aber noch **kein Coral-kompatibles Inferenzmodell**.
 
 - [Architektur, Produktumfang und Roadmap](tasks/plan.md)
 - [Vorläufige Umsetzungsschritte mit Abnahmekriterien](tasks/todo.md)
@@ -108,30 +108,108 @@ Konfigurationsantwort entfernt. Für den Rückwechsel
 eingereichte Ereignisse bleiben ihrem ursprünglichen Ziel zugeordnet;
 ein Zielwechsel sendet sie nicht versehentlich zum anderen Dienst.
 
-## Erster Trainingsdurchlauf
+## Workflow: COCO-Basis und Kamerarefinement
 
-1. Bilder manuell hochladen oder über Frigate einreichen.
-2. Im Manager Box zeichnen, Klasse angeben, bei Bedarf „False positive“
-   auswählen und speichern. Falsch klassifizierte echte Objekte zusätzlich
-   mit der richtigen positiven Klasse annotieren.
-3. Alle Objekte der gewünschten Trainingsklassen prüfen, erst dann
-   „Mark reviewed“ wählen. Annotationen ändern setzt diesen Status zurück.
-4. Gewünschte Klassen kommasepariert angeben und zunächst 1 Epoche,
-   Batchgröße 2 und 320 Pixel einstellen. Der POC benötigt mindestens zwei
-   unabhängige positiv annotierte Bilder. Jede gewählte Klasse muss im
-   Trainingssplit vorkommen; mehr Daten je Kamera sind sinnvoll.
-5. Auftrag erstellen. Der Runner übernimmt ihn automatisch. Im Browser
-   „Refresh“ aktualisiert den Status; nach Erfolg Ergebnis herunterladen.
+Der Studio-Bereich im Manager führt durch drei Jobs. Eine COCO-Vorbereitung
+lädt keine Gewichte herunter. Sie erfordert im Formular die Bestätigung der
+COCO-Nutzungsbedingungen einschließlich der individuellen Bildrechte. Der
+Runner lädt das offizielle COCO-2017-Annotationsarchiv und anschließend die
+angeforderte Teilmenge von Trainings- und Validierungsbildern. Die Auswahl ist
+seeded und deckt die 80 COCO-Klassen in beiden ursprünglichen Splits ab. Kann
+die angeforderte Anzahl diese Abdeckung nicht erreichen, schlägt der Job
+explizit fehl. Der Default ist 1.000 Trainings- und 200 Validierungsbilder;
+zulässig sind 80–118.287 bzw. 80–5.000.
 
-Der Snapshot enthält nur explizit geprüfte Bilder. Rote Boxen bleiben im
-Manifest erhalten, erscheinen aber niemals als positive YOLO-Targets.
+Der COCO-Annotationsdownload ist auf 512 MiB begrenzt; jedes COCO-JSON wird
+beim Lesen auf 3 GiB begrenzt. Pro ausgewähltem Bild gilt ein Limit von 32 MiB.
+Es werden nur die ausgewählten Bilder geladen, aber das vollständige
+Annotationsarchiv wird benötigt. Runner behalten Downloads unter
+`RUNNER_DATASETS_DIR/.downloads` und die veröffentlichte, nach Manifest-SHA256
+adressierte Kopie im Cache. Der Cache benötigt daher ungefähr Platz für die
+ausgewählten Bilder zweimal, zusätzlich zum Annotationsarchiv; unterschiedliche
+Datasätze behalten jeweils ihre eigene veröffentlichte Kopie. Die Limits sind
+Obergrenzen, keine Schätzung der tatsächlichen Downloadgröße. Verifizierte
+Downloads werden bei erneuter Vorbereitung wiederverwendet und nicht automatisch
+gelöscht. Cache und Downloadverzeichnis liegen standardmäßig unter
+`RUNNER_WORK_DIR/datasets` und sollten auf einem persistenten Volume liegen.
+
+1. **Datensatz vorbereiten:** COCO mit gewünschter Größe und Seed anfordern.
+   Nach erfolgreichem Abschluss erscheint der Cache-Datensatz samt Klassen und
+   Runnern im Manager. Es wird keine Kameraaufnahme an diesen Job angehängt.
+2. **Basismodell trainieren:** den vorbereiteten Datensatz auswählen. Die
+   Klassenreihenfolge stammt unveränderlich aus dessen Manifest. „Trusted local
+   YOLOv9 weights“ nutzt den lokal montierten `YOLO_WEIGHTS`-Checkpoint;
+   „Train from scratch“ übergibt dem Trainer leere Gewichte. Epochen, Batch und
+   Bildgröße sind begrenzt; die UI startet mit 30 / 8 / 320.
+3. **Ergebnis ausdrücklich speichern:** nach erfolgreichem Training kann ein
+   Admin den Job mit einem Namen als Modell registrieren. Der Manager übernimmt
+   nur `best.pt` aus dem Ergebnis-ZIP, speichert es unveränderlich mit SHA256
+   und erhält Taxonomie, Datensatz und Elternlinie. Der Manager lädt den
+   Checkpoint dabei nicht in Python oder PyTorch. Promotete Checkpoints stammen
+   trotzdem von vertrauenswürdigen Runnern: Alle Runner mit dem gemeinsamen
+   Runner-Token sind Operatoren, deren Artefakten der Admin vertrauen muss.
+4. **Kamerarefinement:** ein gespeichertes Modell und nichtleere Kameras wählen.
+   Nur geprüfte Bilder dieser Kameras gehen in den eigenen Trainingssnapshot.
+   Prüfe die sichtbaren Objekte über die gesamte Taxonomie des Elternmodells.
+   Die vollständige geordnete Elterntaxonomie bleibt im Modell erhalten; es ist
+   kein positives Beispiel für jede Klasse in den Kameraaufnahmen erforderlich.
+   Mindestens zwei unabhängige Bilder mit positiven Zielen und positive Bilder
+   sowohl für Training als auch Validierung sind erforderlich. Positive Labels
+   außerhalb der Eltern-Taxonomie werden abgewiesen. Die UI startet mit 5
+   Epochen, Batchgröße 4, Bildgröße 320 und null Replaybildern.
+
+Refinement lädt den gespeicherten Elterncheckpoint für die aktive Runner-Lease
+und prüft seine SHA256. Bei `Public reference images = 0` braucht der Runner
+keinen vollständigen öffentlichen Basisdatensatz; er benötigt nur den
+Checkpoint und den eigenen geprüften Kamerasnapshot. Optionales Replay (0–5.000
+Bilder) erfordert, dass der ursprüngliche Referenzdatensatz des Elternmodells
+auf dem gewählten Runner vorhanden ist. Replay wird deterministisch nur aus
+`images/train` genommen; öffentliche Validierungsbilder bleiben aus dem Training
+ausgeschlossen. Das Rezept nutzt `lr0=0.001` und `--freeze 10`, startet den
+Optimizer neu und bietet keine Garantie gegen Catastrophic Forgetting. Prüfe
+nach dem Fine-Tuning weiterhin die Leistung früher gelernter Klassen.
+
+Für einen ausdrücklich vollständig geprüften Open-Images-Import kann ein
+Operator auf dem Runner die vorhandenen lokalen COCO-Formatdateien importieren.
+Die Quellstruktur enthält `annotations/train.json`, `annotations/val.json`,
+`images/train/` und `images/val/`; `classes.json` ist eine JSON-Liste in der
+gewünschten Reihenfolge. Beispiel:
+
+```sh
+docker compose --env-file .env -f compose.runner.yml run --rm \
+  -v /srv/openimages-reviewed:/import:ro runner \
+  datasets import-reviewed-coco \
+  --root /var/lib/portal-runner/datasets \
+  --source-dir /import \
+  --classes-json /import/classes.json \
+  --confirm-all-classes-reviewed \
+  --confirm-image-and-annotation-licenses
+```
+
+Das Kommando liest keine rohen Open-Images-CSV-Dateien und lädt keine Bilder
+herunter. Es erstellt einen unveränderlichen lokalen Cacheeintrag. Der Runner
+meldet den Eintrag bei seinem nächsten Poll an den Manager. Der Import setzt
+voraus, dass jede im Klassenprofil verwendete Klasse und die individuellen
+Bildrechte vorab geprüft wurden; Lizenzhinweise stehen im Datensatzmanifest.
+Die CLI kann den Cache mit
+`portal-runner datasets inventory --root /var/lib/portal-runner/datasets`
+auflisten. Die vollständigen Flags stehen in
+`portal-runner datasets import-reviewed-coco --help`.
+
+Im manuellen Kameraworkflow Boxen zeichnen, Klasse angeben, bei Bedarf „False
+positive“ auswählen und speichern. Falsch klassifizierte echte Objekte
+zusätzlich mit der richtigen positiven Klasse annotieren. Erst nach vollständiger
+Prüfung „Mark reviewed“ wählen; Annotationen ändern setzt den Status zurück.
+Der Snapshot enthält nur explizit geprüfte Bilder. Negative Boxen bleiben im
+Manifest erhalten und werden nicht als positive YOLO-Targets ausgegeben.
 Geprüfte reine Hintergrundbilder erhalten leere Targets. Der POC hat keine
 direkte klassenbezogene negative Loss. `difficult`-Positivboxen werden als
 gewöhnliche positive Targets exportiert und zusätzlich im Manifest markiert.
 
-Ergebnisse: `best.pt`, `last.pt`, `metrics.csv`, `training.log` und
-`provenance.json`. Die Checkpoints sind die Grundlage für späteren Export.
-Sie können noch nicht direkt auf Coral oder als `plus://`-Modell geladen werden.
+Trainingsartefakte enthalten `best.pt`, `last.pt`, `metrics.csv`,
+`training.log` und `provenance.json`. Sie sind die Grundlage für spätere
+Konvertierung und Deployment, können aber noch nicht direkt auf Coral oder als
+`plus://`-Modell geladen werden.
 
 ## GitHub Actions und ladbare Images
 
@@ -177,9 +255,13 @@ ruff format --check manager runner tests
 
 Lokal geprüft: Manager- und GPU-Runner-Image gebaut, Browser-Verbindung,
 manuelle rote Box und Verifizierung; echte HTTP-Auftrags-/Transferkette mit
-ersetztem Trainer; zusätzlich echter YOLOv9-CPU-Trainingslauf über eine Epoche
-auf synthetischen Bildern im CUDA-Image einschließlich Checkpoints und
-Validierung. Auf RTX wurde hier noch kein Lauf gemessen.
+ersetztem Trainer; zusätzlich echte YOLOv9-CPU-Läufe im CUDA-Image:
+Basistraining, Speichern des Checkpoints und anschließendes Kamerarefinement
+ohne öffentlichen Cache oder lokale Startgewichte. Beide Läufe nutzten je
+eine Epoche auf synthetischen Bildern und erzeugten Checkpoints, Metriken und
+Herkunftsdaten. COCO-Vorbereitung wurde mit kontrollierten Download-Fixtures
+geprüft; ein vollständiger öffentlicher Download wurde nicht gestartet.
+Auf RTX wurde hier noch kein Lauf gemessen.
 
 Noch offen: automatische Vorannotation, Coral-ReLU6/INT8-Export, Modell-
 Deployment/Rollback in Frigate, Konten/Rollen, per Runner getrennte Tokens,

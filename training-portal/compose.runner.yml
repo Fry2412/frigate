@@ -11,10 +11,13 @@ services:
       PORTAL_RUNNER_TOKEN: ${PORTAL_RUNNER_TOKEN:?Set the manager runner token}
       RUNNER_ID: ${RUNNER_ID:-rtx-runner-1}
       RUNNER_WORK_DIR: /var/lib/portal-runner
+      RUNNER_DATASETS_DIR: /var/lib/portal-runner/datasets
       YOLO_WEIGHTS: ${YOLO_WEIGHTS-/weights/yolov9-s.pt}
     volumes:
       - runner-work:/var/lib/portal-runner
       - ./weights:/weights:ro
+      # Optional curated dataset import: bind a reviewed source here with
+      # `-v /your/reviewed-dataset:/import:ro` for a one-off CLI import.
     stop_grace_period: 45s
 
 volumes:
