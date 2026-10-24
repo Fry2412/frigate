@@ -197,52 +197,51 @@ class RecordingCleanup(threading.Thread):
         deleted_recordings = set()
         kept_recordings: list[tuple[float, float]] = []
         for recording in recordings:
-            keep = False
-            mode = None
-            # Now look for a reason to keep this recording segment
+            modes: set[RetainModeEnum] = set()
+            # Look for every reason to keep this recording segment.
             for idx in range(review_start, len(reviews)):
                 review = reviews[idx]
                 severity = review.severity
                 pre_capture = config.record.get_review_pre_capture(severity)
                 post_capture = config.record.get_review_post_capture(severity)
 
-                # if the review starts in the future, stop checking reviews
-                # and let this recording segment expire
-                if review.start_time - pre_capture > recording.end_time:
-                    keep = False
+                # Stop only when even the largest pre-capture cannot reach it.
+                if (
+                    review.start_time - config.record.event_pre_capture
+                    > recording.end_time
+                ):
                     break
 
-                # if the review is in progress or ends after the recording starts, keep it
-                # and stop looking at reviews
+                if review.start_time - pre_capture > recording.end_time:
+                    continue
+
                 if (
                     review.end_time is None
                     or review.end_time + post_capture >= recording.start_time
                 ):
-                    keep = True
-                    mode = (
+                    modes.add(
                         alerts_retain_mode
                         if review.severity == "alert"
                         else detections_retain_mode
                     )
-                    break
-
-                # if the review ends before this recording segment starts, skip
-                # this review and check the next review for an overlap.
-                # since the review and recordings are sorted, we can skip review
-                # that end before the previous recording segment started on future segments
-                if review.end_time + post_capture < recording.start_time:
+                # Skip an expired earlier review on later segments only if no
+                # review has matched yet; post-capture windows may differ.
+                elif not modes:
                     review_start = idx
 
-            # Delete recordings outside of the retention window or based on the retention mode
-            if (
-                not keep
+            # Keep the segment if any overlapping review's mode retains it.
+            if not any(
+                mode == RetainModeEnum.all
                 or (
                     mode == RetainModeEnum.motion
-                    and recording.motion == 0
-                    and recording.objects == 0
-                    and recording.dBFS == 0
+                    and (
+                        recording.motion != 0
+                        or recording.objects != 0
+                        or recording.dBFS != 0
+                    )
                 )
-                or (mode == RetainModeEnum.active_objects and recording.objects == 0)
+                or (mode == RetainModeEnum.active_objects and recording.objects != 0)
+                for mode in modes
             ):
                 recording_path = Path(recording.path)
                 recording_path.unlink(missing_ok=True)
