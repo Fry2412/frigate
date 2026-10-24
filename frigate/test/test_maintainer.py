@@ -2,9 +2,9 @@ import datetime
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from peewee import SqliteDatabase
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from frigate.config import FrigateConfig, RetainModeEnum
 from frigate.models import ReviewSegment
