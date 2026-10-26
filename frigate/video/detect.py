@@ -2,8 +2,9 @@
 
 import logging
 import queue
+import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from multiprocessing import Queue
 from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
@@ -190,7 +191,9 @@ def process_frames(
     region_grid: list[list[dict[str, Any]]],
     exit_on_empty: bool = False,
 ):
-    next_region_update = get_tomorrow_at_time(2)
+    # Stagger camera grid rebuilds so requests do not block recording inserts.
+    region_update_offset = timedelta(seconds=random.randrange(3600))
+    next_region_update = get_tomorrow_at_time(2) + region_update_offset
     config_subscriber = CameraConfigUpdateSubscriber(
         None,
         {camera_config.name: camera_config},
@@ -275,7 +278,7 @@ def process_frames(
 
         if datetime.now().astimezone(timezone.utc) > next_region_update:
             region_grid = requestor.send_data(REQUEST_REGION_GRID, camera_config.name)
-            next_region_update = get_tomorrow_at_time(2)
+            next_region_update = get_tomorrow_at_time(2) + region_update_offset
 
         try:
             if exit_on_empty:
