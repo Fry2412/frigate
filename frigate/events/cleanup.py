@@ -116,7 +116,7 @@ class EventCleanup(threading.Thread):
                 Event.start_time < expire_after,
                 Event.label == event.label,
                 Event.retain_indefinitely == False,
-                    Event.has_snapshot == True,
+                Event.has_snapshot == True,
             )
 
             events_to_update: list[str] = []
@@ -172,7 +172,7 @@ class EventCleanup(threading.Thread):
                         Event.start_time < expire_after,
                         Event.label == event.label,
                         Event.retain_indefinitely == False,
-                    Event.has_snapshot == True,
+                        Event.has_snapshot == True,
                     )
                     .namedtuples()
                     .iterator()
