@@ -926,6 +926,13 @@ class ReviewSegmentMaintainer(threading.Thread):
                             detections,
                         )
                 elif topic == DetectionTypeEnum.api:
+                    # An end event has no label and cannot start a new segment.
+                    if manual_info["state"] == ManualEventState.end:
+                        self.indefinite_events[camera].pop(
+                            manual_info["event_id"], None
+                        )
+                        continue
+
                     severity = None
                     # manual_info["label"] contains 'label: sub_label'
                     # so split out the label without modifying manual_info
